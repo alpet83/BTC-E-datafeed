@@ -74,6 +74,8 @@
     var depth_data = new Array();
     var depth_last = new Array();  // для фильтрации повторных ложных приемов - на depth_limit позиций к каждому тикеру
     var depth_limit = 64;
+    var rqs_count = 0;
+    var data_sent = 0;     
         
     
     
@@ -317,7 +319,9 @@
     function rentRqs()
     {
       var st_list = new Array();
-      var ct = new Date(); 
+      var ct = new Date();
+      rqs_count = rqs_count + 1; // pref detector 
+       
       for (var i = 0; i < rq_list.length; i++)
       {
          var rqs = rq_list[i];
@@ -379,7 +383,29 @@
        sender.send(params);         
          
     */
+     var ws = false; 
 
+    function open_socket(server = 'ws://10.10.10.97:8000')
+    { 
+      var sock = new WebSocket(server);
+      sock.onopen = function()          { logMsg('ws: connection established'); }     
+      sock.onclose = function()         { logMsg('ws: connection lost!');  ws = false; }
+      sock.onmessage = function (event) { logMsg('ws: ' + event); }
+      return sock;                                        
+    }    
+    
+    function on_flush()
+    {
+      // cleanup 
+      for (var ticker in depth_data)
+      {
+          var rec = depth_data[ticker];
+          rec.bid = new Array();
+          rec.ask = new Array();         
+           
+      }    
+    }
+    
     
     function checkDataLag()
     {       
@@ -417,66 +443,43 @@
          len++;
       }
       
-      
       var sel = (sec % 10); 
       var cnt = 0;
       var minute_end = (sec >= 58);
-      
-      setHTML('info2', ' sec = ' + sec + ', len = ' + len + ', sel = ' + sel);
-    
+
+      if (!ws || ws.readyState == 3)
+           ws = open_socket();
+                 
+      var txt = $.toJSON(data);
+      var url = "upd_depth.php?pair=all";
       if (rentBusy("upd_depth.php") == 0 || sec > 50)
       if (sel == 4 || sel == 9)
       {
-        var txt = $.toJSON(data);
+        if (ws.readyState == 1) 
+            ws.send('depth=' + txt);
+      
+        txt = encodeURIComponent(txt);
         var rqs = rentRqs();
-        var url = "upd_depth.php?pair=all";
+        /*
         rq_urls[rqs_num] = url;
         rqs.open("POST", url, true);       
         rqs.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');      
-        rqs.send("pair=all&data=" + encodeURIComponent(txt) + "&rqs=" + rqs_num);
-        for (var ticker in depth_data)
-        {
-           var rec = depth_data[ticker];
-           rec.bid = new Array();
-           rec.ask = new Array();
-        }
+        rqs.send("pair=all&data=" + txt + "&rqs=" + rqs_num);
+                        
+        rqs = rentRqs();      
+        rq_urls[rqs_num] = url;
+        //*/
+        
+        url = "http://10.10.10.50/upd_depth.php?pair=all";
+        rqs.open("POST", url, true);       
+        rqs.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');      
+        rqs.send("pair=all&data=" + txt + "&rqs=" + rqs_num);
+        
+        data_sent = data_sent + txt.length * 2;
+        setHTML('info2', 'rqs_count = ' + rqs_count + ', data_sent = ' + (data_sent / 1024.0) + 'K, sec = ' + sec);
+        on_flush();
       }      
       
-      
-      /*
-      if (rentBusy("upd_depth.php") <= 10 && sec > 20)         
-      for (var ticker in depth_data)
-      {
-         var rec = depth_data[ticker];         
-         if ( rec.ask.length + rec.bid.length > 0 &&
-              (sel == cnt) )
-         {   
-             // var ts = rec.time;             
-             var rqs = rentRqs();
-             var url = "upd_depth.php?pair=" + ticker;
-             rq_urls[rqs_num] = url;       
-             rqs.open("POST", url, true);       
-             rqs.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
-             if (ticker == 'btc_usd')             
-                setHTML('info4', timeToStr(now) + ' send asks:' + rec.ask.length + ' bids:' + rec.bid.length);                           
-             var txt = $.toJSON(rec);
-             
-             rqs.onreadystatechange = function()
-             {
-                if (rqs.readyState == 4 && rqs.status == 200)
-                {
-                  rec.bid = new Array();
-                  rec.ask = new Array();
-                }  
-             }       
-             rqs.send("pair=" + ticker + "&data=" + encodeURIComponent(txt) + "&rqs=" + rqs_num);
-             
-                          
-             
-         } // if
-         cnt++;
-      }   
-      */
       setTimeout(checkDataLag, delay);    
     }
     
@@ -576,8 +579,6 @@
        state['price_last'] = pval;
        state['qty_last']   = Number(rec[2]);
        state['time_last']  = timeToStr (time_last);
-       
-           
            
        var price_ref = arval (state, 'price_ref', 0);      
        setHTML("info5", "last recv: " + rec.join());
@@ -586,8 +587,6 @@
        setHTML("counter", String(recv_count) + ", checks: " + String(checks_count) + ", idle: " + String(idle_ticks));
        
        time_last = new Date();  // received was
-       
-               
        
        if (ticker != "btc_usd")
           setHTML("info5", "onTrade: " + ticker + "@" + pval);
@@ -598,6 +597,7 @@
               
        var txt = $.toJSON (trade_state);
        
+       // random update if trade.time at 0 sec
        if (time_last.getSeconds() == 0 && sender.readyState == 4)
        {       
           sender.open("POST", "data_pump.php", true);
@@ -606,13 +606,20 @@
           sender.send(params);
        }
        
-       
-       var rqs = rentRqs();       
        var params="pair=" + ticker + "&data=" + rec.join();
+       
+       if (ws && ws.readyState == 1)
+           ws.send("trade=" + ticker + "," + rec.join());  
+       
+       var rqs = rentRqs();
+              
+       /*       
+       
        rqs.open("GET", "save_trades.php?" + params, true);
        rqs.send();
-       
        rqs = rentRqs();
+       //*/
+       
        rqs.open("GET", "http://10.10.10.50/save_trades.php?" + params, true);
        rqs.send();
     }

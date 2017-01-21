@@ -1,5 +1,5 @@
-<pre><?php
-
+<?php
+  header("Access-Control-Allow-Origin:*");
   $log_file = false;
    
   $cur_dir  = getcwd(); // '/var/www/btc-e';
@@ -74,13 +74,6 @@
   $insert_bids = array();
   $insert_asks = array();
   $zero_volume = 0;
-  
-  $link = new mysqli('localhost', $db_user, $db_pass); 
-  $mysqli = $link;
-  
-  if ($link->connect_error) 
-      die('cannot connect to DB server: '.$link->connect_error);
-  
     
   function cache_insert($head, $row)
   {
@@ -94,33 +87,33 @@
 
   function load_last_depth($pair, $suffix)
   {
-    global $link;
+    global $mysqli;
     $query = "SELECT price, volume FROM $pair$suffix\n";
     $query .= "ORDER BY price ";
     if (strpos($suffix, '__bids')) $query .= "DESC;";
     // echo("Executing $query\n");
-    $result = $link->query($query); 
-    if (!$result) die("Failed <$query> with errors:\n".$link->error);    
+    $result = $mysqli->query($query); 
+    if (!$result) die("Failed <$query> with errors:\n".$mysqli->error);    
     return $result;
   } 
   
   function saldo_depth_volume($pair, $suffix, $calc_cost)
   {
-    global $link;
+    global $mysqli;
     $fields = 'volume';    
     if ($calc_cost) 
         $fields = 'volume * price';
         
     $query = "SELECT SUM($fields) FROM $pair$suffix\n";
-    $result = $link->query($query); 
-    if (!$result) die("Failed <$query> with errors:\n".$link->error);    
+    $result = $mysqli->query($query); 
+    if (!$result) die("Failed <$query> with errors:\n".$mysqli->error);    
     return  $result->fetch_array(MYSQL_NUM)[0];
   }
   
 
   function save_depth_stats($pair, $s)
   {
-    global $ts;
+    global $mysqli, $ts;
     $keys = array_keys($s);
     // echo(" price = {$rec[0]}  vol {$rec[1]} \n");
     $query = "INSERT INTO $pair"."__stats\n";
@@ -131,7 +124,7 @@
        $query .= ','.$s[$k];
        
     $query .= " )\n";
-    $link->query($query) or die("Failed <$query> with errors:\n".$link->error);  
+    $mysqli->query($query) or die("Failed <$query> with errors:\n".$mysqli->error);  
   }
 
   function fmt_depth_row($rec, $flags)
@@ -147,7 +140,7 @@
     $head .= "(ts,price,volume,flags) ";
     $head .= "VALUES ";
     $row = "('$ts',$price,$vol,$flags),";
-    cache_insert($head, $row); //  or die("Failed <$query> with errors:\n".$link->error);    	
+    cache_insert($head, $row);     	
   }
   
   function update_depth($table, $row, $flags)
@@ -175,29 +168,29 @@
   
   function exec_multi($query, $context)
   { 
-     global $link;
+     global $mysqli;
      
      $query = rtrim($query, ",;\n");
      
      log_msg("[$context] query size: ".strlen($query));
-     if ($link->multi_query($query))
+     if ($mysqli->multi_query($query))
      {
          $cnt = 0;                  
          do 
-         {   $result = $link->store_result();
+         {   $result = $mysqli->store_result();
              $cnt ++;
              if ($result) log_msg(" result[$cnt]: ".var_dump($result));                
-         } while ($link->next_result());
+         } while ($mysqli->next_result());
          log_msg("[$context] query sucess, results [$cnt] ");             
      }
      else
-         log_msg("[$context] query failed\n $query\n mysql error:".$link->error);
+         log_msg("[$context] query failed\n $query\n mysql error:".$mysqli->error);
    
   }
   
   function insert_last($pair, $suffix, $rows)
   {
-    global $link, $zero_volume;
+    global $mysqli, $zero_volume;
     $count = count($rows);
     if (0 == $count) return false;
            
@@ -211,9 +204,9 @@
     
     $query = "DELETE FROM $pair$suffix";                 
     $query .=  sprintf(' WHERE volume <= %.5f ', MIN_VOLUME);
-    $r = try_query($query);
+    $r = $mysqli->try_query($query);
     if ($r)
-        log_msg(" from $pair$suffix removed [{$link->affected_rows}] rows");                                       
+        log_msg(" from $pair$suffix removed [{$mysqli->affected_rows}] rows");                                       
      
     return true;
   }
@@ -221,11 +214,11 @@
   
   function insert_diff($pair, $data = false)
   {
-     global $ts, $link, $log_file, $insert_cache, $insert_asks, $insert_bids, $zero_volume;
-     if (!isset($_POST['data'])) return;
+     global $ts, $mysqli, $log_file, $insert_cache, $insert_asks, $insert_bids, $zero_volume;     
      if (!$data) 
      {
-        $data = $_POST['data'];  
+        $data = $_POST['data'];
+        if (!$data) die("#FATAL: no data for insert_diff");  
         $data = json_decode($data);     	
      } 
      
@@ -265,8 +258,6 @@
      }
   
      if (0 == $count) return; 
-     // try_query( sprintf( 'LOCK TABLES %s__asks WRITE', $pair) );
-     // try_query( sprintf( 'LOCK TABLES %s__bids WRITE', $pair) );
   
      insert_last($pair, '__asks', $insert_asks);
      insert_last($pair, '__bids', $insert_bids);
@@ -296,7 +287,7 @@
 
   function save_spreads($pair, $asks, $bids)
   {
-     global $ts, $link, $spreads_fields;
+     global $ts, $mysqli, $spreads_fields;
      
      // $query = sprintf("ALTER TABLE `%s__spreads` CHANGE `id` `id` INT(10) UNSIGNED NOT NULL AUTO_INCREMENT", $pair);
      make_table($pair."__spreads", $spreads_fields, ", UNIQUE KEY `TIMESTAMP` (`ts`)");
@@ -337,7 +328,7 @@
      $query .= ",'$ts');\n";
       
      // echo $query;
-     $link->query($query);
+     $mysqli->query($query);
 
      //printf(" sell levels: [%s] \n", implode(',', $prices));
   
@@ -345,15 +336,18 @@
   
   
 
-  function save_for_pair($pair, $force = false, $data = false)
+  function save_depth($pair, $force = false, $data = false)
   {
-     global $ts, $date, $link, $last_ts, $date_dir, $depth_fields, $stats_fields, $trades_fields, $last_url;
+     global $ts, $date, $mysqli, $last_ts, $date_dir, $depth_fields, $stats_fields, $trades_fields, $last_url;
      $path =  "/var/www/depth/";
      check_mkdir($path);
      $file_name = $path.$pair."_last.json";   
           
      $upd = insert_diff($pair, $data);
-     log_msg("stored $upd rows");
+     if ($upd >= 0)
+         log_msg("stored $upd rows");
+     else
+         log_msg("save_depth: failed load from data:\n ".print_r($data, true)); 
      
      // return true;
      // $query = sprintf("RENAME TABLE `depth_history`.`%s_full` TO `depth_history`.`%s__full`;\n", $pair, $pair);
@@ -367,7 +361,7 @@
          $dt = new DateTime($last_ts, new DateTimeZone('UTC'));
          $table = $pair.'__full';
          
-         $full_ts = $link->query("SELECT ts FROM $table ORDER BY ts DESC LIMIT 1");
+         $full_ts = $mysqli->query("SELECT ts FROM $table ORDER BY ts DESC LIMIT 1");
          if ($full_ts)
          { 
              $full_ts = $full_ts->fetch_array(MYSQL_NUM)[0];
@@ -398,7 +392,7 @@
           
           $query = "INSERT INTO $pair"."__full($fields)\n";
           $query .= "SELECT $fields FROM $pair"."__bids\n"; 
-          $link->query($query);
+          $mysqli->query($query);
           $query = "INSERT INTO $pair"."__full($fields)\n";
           $query .= "SELECT $fields FROM $pair"."__asks\n"; 
           
@@ -451,10 +445,8 @@
      log_msg("#COMPLETE:-------------------------------------------- )");		
      
 	}
-
-  // $link = mysql_connect('localhost', $db_user, $db_pass) or die('cannot connect to DB server: '.$link->error);
-  $link->select_db("depth_history"); // or die('cannot select DB depth_history');
-  // foreach ($save_pairs as $pair) save_for_pair($pair);
+    
+  // foreach ($save_pairs as $pair) save_depth($pair);
   //*
   function update_log($pair, $open_new = false)
   {
@@ -465,45 +457,60 @@
     $c = fread($log_file, 65536);
     $f = fopen("$cur_dir/logs/upd_depth_$pair.log", 'a+');
     fclose($log_file);
+    
     fputs($f, $c);
     fflush($f);    
     fclose($f);
-    if ($open_new) 
-       $log_file = tmpfile();
+    $log_file = $open_new ? tmpfile() : false;     
   }
   
-   
-  if (strlen($pair) >= 7)
-  {  
-     save_for_pair($pair, true); 
-  }
-  else
-  if ($pair == 'all') //  && isset($_POST['data'])
+  function complex_update($data)
   {
-     set_time_limit(25);
-     $data = $_POST['data'];
-     $data = json_decode($data);      
+     global $mysqli, $cur_dir, $pid, $log_name;
+     
      $log_name = "$cur_dir/logs/upd_depth_$pid.log";
      $fh = fopen($log_name, "a+");
      
-     fprintf($fh, str_ts_sq()." updating for all pairs \n");         
+     fprintf($fh, str_ts_sq()." updating for all pairs \n");
+     $start = precise_time();         
           
+          
+     $mysqli->select_db('depth_history');     
      
      foreach($data as $pair => $rec)
      if ($rec->ask || $rec->bid)
      {
        // log_msg("data [$pair]:\n".print_r($rec,true)); 
        fprintf($fh, str_ts_sq()."\t processing $pair \n");
-       save_for_pair($pair, true, $rec);              
+       save_depth($pair, true, $rec);              
        update_log("$pair+", true);
      } 
+     $end = precise_time();
      
-     fprintf($fh, str_ts_sq()." ---------------------------------------------------------------------------------- \n");
-     fclose($fh);
-  
+     $elps = diff_time_ms($start, $end);     
+     
+     fprintf($fh, str_ts_sq()." elps = %.3f ms (%f -> %f) ---------------------------------------------------------------------------------- \n", $elps, $end[1], $start[1]);
+     fclose($fh);  
+  }
+
+   
+   
+  if (strlen($pair) >= 7)
+  {  
+     init_db('depth_history');
+     save_depth($pair, true); 
+  }
+  else
+  if ($pair == 'all') //  && isset($_POST['data'])
+  {
+     init_db('depth_history');
+     set_time_limit(25);
+     $data = $_POST['data'];
+     $data = json_decode($data);
+     complex_update($data);      
   }
   
-  $link->close();  
+  if ($mysqli) $mysqli->close();  
   update_log($pair or 'nope');
   // unlink($log_name);  
 ?>
