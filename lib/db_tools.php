@@ -5,14 +5,86 @@
   // ", KEY `TIMESTAMP` (`ts`)"
   $link   = false;
   $mysqli = false;
+  $double_field = "double NOT NULL DEFAULT '0'";
+  $float_field  = "float NOT NULL DEFAULT '0'";
+  
+    
+  // OOP wrapper
+  class mysqli_ex extends mysqli 
+  {
+     public $extended = true;  
+  
+     function try_query($query, $rmode = MYSQLI_STORE_RESULT)
+     {
+        $result = $this->query($query);
+        if (!$result)
+        {            
+          $err = $this->error;
+          log_msg("#FAILED [$query] with error:\n\t$err\n");
+         print_traceback();           
+        }
+        return $result;
+     } // try_query  
+     
+     function select_from($fields, $table, $params, $rmode = MYSQLI_STORE_RESULT)
+     {       
+        return $this->try_query("SELECT $fields FROM $table\n$params", $rmode);        
+     }
 
+     function select_row($fields, $table, $params, $type = MYSQL_NUM)
+     {
+        $r = $this->select_from($fields, $table, "$params\n LIMIT 1", $type);     
+        if (!$r) return null;           
+        return $r->fetch_array($type);  
+     } 
+      
+      function select_value($field, $table, $params)
+      {
+        $row = $this->select_row($field, $table, $params);
+        if ($row)
+            return $row[0];
+        else
+            return null;
+      }
+      
+      function table_exists($table)
+      {
+        $r = $this->try_query("SHOW TABLES LIKE '$table'");
+        return ($r && $r->num_rows == 1);
+      }
+      
+  }
+
+
+  function init_db($db_name = false, $new = true)
+  { 
+    global $link, $mysqli, $db_user, $db_pass;
+     
+    if ($new)
+    {
+      $link = new mysqli_ex('localhost', $db_user, $db_pass); 
+      $mysqli = $link;
+      
+      if ($link->connect_error) 
+          die('cannot connect to DB server: '.$link->connect_error);  
+          
+      if ($db_name) $link->select_db($db_name); // or die('cannot select DB depth_history');
+    }
+    else
+    {
+      $link = mysql_connect('localhost', $db_user, $db_pass) or die('cannot connect to DB server: '.$link->error);
+      if ($link && $db_name)
+          mysql_select_db($db_name, $link);
+      $mysqli = false;
+    }
+  }
 
   function table_exists($table)
   {
     return (mysql_num_rows(mysql_query("SHOW TABLES LIKE '$table'")) == 1);
   }
 
-  function try_query($query)
+  function try_query($query, $link = null) // obsolete procedural variant(!)
   {
      global $mysqli;
      $result = false;
@@ -20,7 +92,12 @@
      if ($mysqli)
        $result = $mysqli->query($query);
      else     
-       $result = mysql_query($query);
+     {
+       if ($link)
+           $result = mysql_query($query, $link);
+       else
+           $result = mysql_query($query);
+     }
        
      if (!$result)
      {            

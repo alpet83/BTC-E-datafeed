@@ -1,21 +1,16 @@
-<pre><?php
-
-  $date = new DateTime ('now', new DateTimeZone('UTC'));
-
+<?php
+  header("Access-Control-Allow-Origin:*");
+  
   include_once('lib/btc-e.api.php');
   include_once('lib/common.php');                                                                 
   include_once('lib/config.php');
   include_once('lib/db_tools.php');
+  $date = utc_time();
 
-  log_msg("script started...");
   set_time_limit(30);
     
   $date_dir = "/var/www/btc-e/trades/".$date->format('Ymd');
-
   $ts = $date->format('Y-m-d H:i:s');
-  $double_field = "double NOT NULL DEFAULT '0'";
-  $float_field  = "float NOT NULL DEFAULT '0'";
-
 
   $trades_fields = array('id' => 'int(11) unsigned NOT NULL AUTO_INCREMENT');
   $trades_fields['ts'] = 'timestamp NOT NULL';
@@ -26,7 +21,7 @@
   $trades_fields['volume']   = $double_field;
 
   $bars_fields = array('id' => 'int(11) unsigned NOT NULL AUTO_INCREMENT');
-  $bars_fields['ts'] = 'timestamp NOT NULL';
+  $bars_fields['ts'] = 'timestamp NULL DEFAULT NULL';
   $bars_fields['open']       = $double_field;
   $bars_fields['high']       = $double_field;  
   $bars_fields['low']        = $double_field;
@@ -36,33 +31,40 @@
 
   function save_bars($pair, $force)
   {  
-     global $bars_fields;
-     // try_query("DROP TABLE $pair".'_bars');
+     global $mysqli, $bars_fields;
      $table =  $pair.'__bars';     
-     // try_query("TRUNCATE TABLE $table"); 
-     make_table($table, $bars_fields, ", UNIQUE KEY `TIMESTAMP`(`ts`) ");
      
-     log_msg("#DBG(save_bars): getting data for $pair...");     
-     $last_trade = select_value('last_trade', $table, 'ORDER BY id DESC');     
+     log_msg("#DBG(save_bars): getting data for $pair...");
+     $tmp = $mysqli->try_query("SHOW CREATE TABLE $table");
+     $row = $tmp->fetch_array(MYSQL_NUM);
+     if ($row && strpos($row[1], 'CURRENT_TIMESTAMP'))
+     {          
+        log_msg("WRONG SQL:\n" .$row[1]);
+        $mysqli->try_query("DROP TABLE $table");         
+     }
+     
+     make_table($table, $bars_fields, ", UNIQUE KEY `TIMESTAMP`(`ts`) ");
+          
+     $last_trade = $mysqli->select_value('last_trade', $table, 'ORDER BY id DESC');     
      
      if (!$last_trade) $last_trade = 0;
      
      $fields = 'ts,price,trade_id,volume';
-     $ticks = select_from($fields, $pair, "WHERE trade_id > $last_trade ORDER BY trade_id");
+     $ticks = $mysqli->select_from($fields, $pair, "WHERE trade_id > $last_trade ORDER BY trade_id");
      if (!$ticks)
      {
         log_msg('#FATAL(save_bars): no ticks returned!');
         return;
      }
      
-     $new_ticks = mysql_num_rows($ticks);
+     $new_ticks = $ticks->num_rows;
      
      log_msg(" retrived [$new_ticks] ticks after [$last_trade] ");
      
      if (0 == $new_ticks) return false;
      
      $columns = '`ts`,`open`,`high`,`low`,`close`,`volume`,`last_trade`';
-     $last_bar = select_row($columns, $table, 'ORDER by id DESC'); 
+     $last_bar = $mysqli->select_row($columns, $table, 'ORDER by id DESC'); 
      $count = 0;   
      
      if (!$last_bar)
@@ -84,7 +86,7 @@
      // processing all ticks 
        
      $ts = new DateTime('now', $tz);  
-     while ($row = mysql_fetch_array($ticks, MYSQL_NUM))
+     while ($row = $ticks->fetch_array(MYSQL_NUM))
      {
        $count ++;       
        $ts->modify($row[0]);
@@ -146,7 +148,7 @@
         $query .= "SET high={$b[2]}, low={$b[3]}, close={$b[4]}, volume={$b[5]}, last_trade={$b[6]}\n";
         $query .= "WHERE ts='{$last_ts}'";
         echo "$query\n\n";
-        try_query($query);   
+        $mysqli->try_query($query);   
      }
            
      if ($cnt > 0 && $cnt < 10000)
@@ -155,7 +157,8 @@
         $query = "INSERT INTO $table($columns)\nVALUES\n";
         $query .= implode($bars, ",\n");        
         echo "$query\n\n";
-        try_query($query);     
+        if (!$mysqli->try_query($query))
+             $mysqli->try_query("TRUNCATE TABLE $table"); // need      
      }
       
      
@@ -163,10 +166,13 @@
   }    
 
 
-  function save_for_pair($pair)
+  function save_trades($pair, $force)
   {
-     global $trades_fields, $date, $last_url, $db_alt_server, $db_user, $db_pass;
+     global $mysqli, $btce_api, $trades_fields, $date, $last_url, $db_alt_server, $db_user, $db_pass;
      $old_id = 0;
+     $mysqli->select_db('trades_history');
+     
+     
 
      make_table_ex("$pair", $trades_fields, 'trade_id', ", KEY `SCAN` (`id`, `ts`, `order_id`)");
 
@@ -175,17 +181,16 @@
      $need_full = false;
      $last_ts = false;
 
-     $row = select_row('trade_id, ts', $pair, 'ORDER BY trade_id DESC');         
+     $row = $mysqli->select_row('trade_id, ts', $pair, 'ORDER BY trade_id DESC');         
      if ($row)
      {
        $old_id = $row[0];
        $last_ts = $row[1]; 
      }
 
-     $remote = new mysqli($db_alt_server, $db_user, $db_pass);
+     $remote = new mysqli_ex($db_alt_server, $db_user, $db_pass);
      
-     
-     $date = new DateTime ('now', new DateTimeZone('UTC'));
+     $date = utc_time();
      
      
      if ($remote && 0 == mysqli_connect_errno())
@@ -194,7 +199,7 @@
         $fields = 'ts, price, order_id, trade_id, flags, volume';
         $query = "SELECT $fields FROM trades_history.$pair\n";
         $query .= "WHERE trade_id > $old_id";        
-        $result = $remote->query($query);
+        $result = $remote->try_query($query);
         
         $lines = array();
          
@@ -219,9 +224,9 @@
           $query = "INSERT INTO $pair ($fields) VALUES\n";
           $query .= implode($lines, ",\n");
           // echo "$query\n";
-          try_query($query);
-          $result = try_query("SELECT trade_id, ts FROM $pair ORDER BY trade_id DESC LIMIT 1") or die("failed SELECT query : ".mysql_error());
-          $row = select_row('trade_id, ts', $pair, 'ORDER BY trade_id DESC');
+          $mysqli->try_query($query);
+          $result = $mysqli->try_query("SELECT trade_id, ts FROM $pair ORDER BY trade_id DESC LIMIT 1") or die("failed SELECT query : ".mysql_error());
+          $row = $mysqli->select_row('trade_id, ts', $pair, 'ORDER BY trade_id DESC');
           if ($row)
           { 
             $old_id = $row[0];
@@ -248,8 +253,15 @@
      }
      
      $params = '';
+     $lazy = strpos($pair, "dsh_") || strpos($pair, "nvc_") || strpos($pair, "ppc_") || strpos($pair, "nmc_");
+     
+     
      if ($old_id == 0 || $upd_age > 100)
          $params = '?limit=2000';
+     else
+      if ( $force && $lazy )
+         $params = '?limit=10'; // обычно мало сделок бывает.             
+         
 
      if (!$force && $upd_age < 90 && $old_id > 0)
      {
@@ -259,14 +271,14 @@
 
 
 
-     $txt = get_public_data('trades', $pair, 4, $params);
+     $txt = get_public_data('trades', $pair, $btce_api, $params);
      if (trim($txt) == "")
      {
         log_msg(" failed get_public_data for $last_url");
         return false;  
      }
 
-     $path =  "/var/www/btc-e/trades/";
+     $path =  getcwd()."/trades/";
      check_mkdir($path);
      $file_name = $path.$pair."_last.json";
      file_put_contents($file_name,  $txt);
@@ -280,7 +292,7 @@
         $trades = array_reverse($tab->$pair);
 
         $count = 0;
-        $query = "INSERT INTO $pair (ts, price, trade_id, flags, volume)\n VALUES";
+        $query = "INSERT INTO $pair (ts, price, trade_id, flags, volume)\n VALUES\n";
 
         foreach ($trades as $rec)
         {
@@ -294,18 +306,16 @@
            $tid   = $rec->tid;
            if ($tid <= $old_id) continue;
 
-           if ($ts < "2017-01-15 21:00:00") continue;
-
            $count ++;
            if ($count > 1) $query .= ",\n";
 
-           $query .= "('$ts', $price, $tid, $flags, $vol)";
+           $query .= "\t('$ts', $price, $tid, $flags, $vol)";
         }
 
         if ($count > 0)
         {
-           // echo("$query \n");
-           mysql_query($query);
+           echo("trades add: $query \n");
+           $mysqli->query($query);
         }
 
      }
@@ -313,24 +323,28 @@
 
   }
 
-  log_msg("connecting to local host DB");
 
-  $link = mysql_connect('localhost', $db_user, $db_pass) or die('cannot connect to DB server: '.mysql_error());
-  mysql_select_db("trades_history") or die("cannot select DB trades_history\n");
 
-  $pair = rqs_param('pair', ''); 
+  $pair = rqs_param('pair', '');
+  if ('' == $pair && isset($argv[1]))
+      $pair = $argv[1]; 
+   
   if (strlen($pair) >= 7)
   {
-     save_for_pair($pair, true);
-     save_bars($pair);  
+     init_db("trades_history");
+     save_trades($pair, true);
+     save_bars($pair, true);  
   }
   else
-  foreach ($save_pairs as $pair)
+  if ($pair == 'all')  
   {
-     save_for_pair($pair, false);
-     save_bars($pair);
+     init_db("trades_history");
+     foreach ($save_pairs as $pair)
+     {
+        save_trades($pair, false);
+        save_bars($pair, false);
+     } // foreach
   }  
 
-  mysql_close($link);
+  if ($mysqli) $mysqli->close();
 ?>
-</pre>

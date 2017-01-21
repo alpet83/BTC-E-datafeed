@@ -1,14 +1,20 @@
 <?php
   date_default_timezone_set("Europe/Moscow");
+  $err_log = "logs/error.log";
   
   error_reporting(E_ERROR | E_WARNING | E_PARSE | E_NOTICE);
+
+  function utc_time($ts = 'now')
+  {
+     return new DateTime ($ts, new DateTimeZone('UTC'));
+  }
 
   function str_ts($ts = null, $tz = null)
   {
     $date = new DateTime($ts, $tz); // ('now', 'Europe/Moscow');
     list($usec, $sec) = explode(" ", microtime());
     
-    $usec = sprintf('%.6f', $usec);
+    $usec = sprintf('%.3f', $usec);
     $usec = str_replace('0.', '', $usec); //
     return $date->format('H:i:s.').$usec;
   }
@@ -18,12 +24,25 @@
     return '['. str_ts().']';
   }
   
+  function precise_time()
+  {
+     list($usec, $sec) = explode(" ", microtime());
+     $usec *= 1000000;      
+     $r = array($sec, $usec);
+     return $r;
+  }
+  
+  function diff_time_ms($start, $end)
+  {  
+     return 1000 * ($end[0] - $start[0]) + 0.001 * ($end[1] - $start[1]); 
+  }
+  
   
   function log_msg($msg, $suffix = "\n")
   {
     global $log_file;
     
-    $line = str_ts_sq().$msg.$suffix; 
+    $line = str_ts_sq().". $msg.$suffix"; 
    
     if ($log_file)    
         fputs($log_file, $line);
@@ -32,6 +51,18 @@
     
     // ob_flush ();
     flush ();
+  }
+
+  function log_error($msg, $suffix = "\n")
+  {
+     global $err_log;
+     $trace = debug_backtrace();
+     $t = $trace[1];
+     $line = sprintf("[%s][%s:%d]. %s%s", str_ts_sq(), $t['file'], $t['line'], $msg, $suffix);
+     $f = fopen($err_log, 'a+');
+     if (!$f) return;
+     fputs($f, $line);
+     fclose($f);
   }
 
   function print_traceback()
@@ -81,10 +112,11 @@
      return $step * $ratio;
   }                                
 
-  function check_mkdir($path)
+  function check_mkdir($path, $attr = 0755)
   {
      if (!file_exists($path))
-          mkdir($path, 0755, true);
+         if (!mkdir($path, $attr, true))
+            log_error(" failed create dir '$path'");
   }
   
   function init_colors($im)
