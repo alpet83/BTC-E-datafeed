@@ -1,74 +1,43 @@
 <pre><?php
-  include_once('lib/btc-e.api.php');
   include_once('lib/common.php');
+  include_once('lib/btc-e.api.php');
   include_once('lib/config.php');
-  include_once('lib/db_tools.php');
-
-  set_time_limit(150);
-  error_reporting(E_ERROR | E_WARNING | E_PARSE | E_NOTICE);
-  
-  define('MIN_VOLUME', 0.005);
-  
-
   $ldt = new DateTime('now');
   $sec = $ldt->format('s') * 1;
+  echo "$sec\n";
+  include_once('lib/db_tools.php');
 
-  
-  if ($sec < 59)
+  if ($sec < 29 || $sec > 30)
   {
       log_msg ("time not actual ");
-      if ($sec < 50)   
+      if ($sec < 20)
           sleep(10);
       else 
           sleep(1);    
       return;
   } 
 
-  list($usec, $sec) = explode(" ", microtime());
-  $usec *= 1000000;      
-  $adj = 999990;       
-  if ($usec < $adj) 
-      usleep($adj - $usec + 00);
+  set_time_limit(150);
 
-  $api = mt_rand(3, 4);
-
+  error_reporting(E_ERROR | E_WARNING | E_PARSE | E_NOTICE);
   $date_dir = "/var/www/depth/".$ldt->format('Ymd');  
     
+  list($usec, $sec) = explode(" ", microtime());
+  $usec *= 1000000;      
+  $adj = 999900;       
+  if ($usec < $adj) 
+      usleep($adj - $usec + 00);
   
-  
+
+  define('MIN_VOLUME', 0.005);
   $date = new DateTime ('now', new DateTimeZone('UTC'));
   $ldt->modify('now');   
   $ts = $date->format('Y-m-d H:i:s'); // GMT ts
-  $sec  = ( $date->format('s') + 0 ); 
-  $m    = ( $date->format('i') + 0 );
-  if ($sec > 50) $m++;
+  $m = ( $ldt->format('i') * 1 );
   
   $last_ts = '';
-  
-  $pair = rqs_param('pair', '');  
-  $pair_flt = '_';
-    
-  foreach ($argv as $arg)
-  {  
-    if (strpos($arg, 'pair=') !== false)    
-        $pair = str_replace('pair=', '', $arg);
-        
-    if (strpos($arg, 'pair_filter') !== false)    
-        $pair_flt = str_replace('pair_filter=', '', $arg);    
-        
-  }
-
-  if ($pair_flt == '_usd' xor ($m % 2 == 0))
-     $api = 3;
-  else
-     $api = 4;
-  
-  $log_dir = "logs/save_depth$pair_flt";
-  check_mkdir($log_dir);  
-  $log_name = "$log_dir/$m.log";
-  $log_file = fopen($log_name, "w");
-
-  // log_msg(" ts = [$ts], m = [$m] ");  
+  $log_name = "/var/www/logs/upd_depth_$m.log";
+  $log_file = fopen($log_name, "w+");
   
   $double_field = "double NOT NULL DEFAULT '0'";
   $float_field  = "float NOT NULL DEFAULT '0'";
@@ -197,7 +166,7 @@
          $price = min($price, $old[0][0]);        
          
          
-     log_msg(" $pair.min_price = $price \n");
+     echo(" $pair.min_price = $price \n");
      $i_old = 0;
      $i_new = 0;
      
@@ -211,15 +180,20 @@
         if ($vol_old < MIN_VOLUME) $vol_old = 0;
         if ($vol_new < MIN_VOLUME) $vol_new = 0;
         
+   	
+        // echo (" [$flags] compare $price_old vs $price_new : ");
+    
         if ($price_old == $price_new)
         	{
+             // echo("eq.price detected. ");
         	   if ($vol_old != $vol_new)
                {
         	       // volume for this depth row was changed
           	     save_diff_row($pair, $price_new, $vol_new, $flags);
-                 if ($pair == 'nvc_usd') log_msg("  *** @$price_new volume changed to $vol_new \n");
+                 if ($pair == 'nvc_usd') echo("  *** @$price_new volume changed to $vol_new \n");
                  $commits ++;  
                }
+             // else echo("eq.volume - nothing save\n");         	   	
         	   
         	   $i_old ++; $i_new ++; 
         	   continue;
@@ -227,7 +201,7 @@
        if ($price_old > $price_new)
        {
           // появился новый элемент стакана, с меньшей ценой
-          if ($pair == 'nvc_usd') log_msg (" +++ new row added $price_new $vol_new \n");                     
+          if ($pair == 'nvc_usd') echo(" +++ new row added $price_new $vol_new \n");                     
           if ($vol_new > 0) save_diff_row($pair, $price_new, $vol_new, $flags);
           $commits ++;
           $i_new ++;
@@ -235,7 +209,7 @@
        else
        {
           // исчез старый элемент стакана с меньшей ценой
-          if ($pair == 'nvc_usd') log_msg (" --- old row deleted $price_old $vol_old \n");
+          if ($pair == 'nvc_usd') echo(" --- old row deleted $price_old $vol_old \n");
           save_diff_row($pair, $price_old, 0, $flags);
           $commits ++;
           $i_old ++;
@@ -244,7 +218,7 @@
      } // while
      
      if ($commits > 0)
-         log_msg ("diff commits total = $commits \n");
+         echo("diff commits total = $commits \n");
   } // save_diff
 
   function try_insert($query) // only for depth __ask/__bids tables
@@ -332,7 +306,7 @@
           else 
              $skip ++;
           $acnt ++;    
-          if ($acnt % 500 == 0)
+          if ($acnt % 100 == 0)
           {
              try_insert($query);
              $query = $head;
@@ -357,7 +331,7 @@
              $skip ++;
           $bcnt ++;
                 
-          if ($bcnt % 500 == 0)
+          if ($bcnt % 100 == 0)
           {
              try_insert($query);
              $query = $head;
@@ -434,7 +408,9 @@
      $query .= ','.implode(',', $prices);
      $query .= ",'$ts');\n";
       
+     // echo $query;
      try_query($query);
+
      //printf(" sell levels: [%s] \n", implode(',', $prices));
   
   }
@@ -443,7 +419,6 @@
   function prepare($pair)
   {
      global $depth_fields, $stats_fields, $trades_fields;
-     make_table($pair."__temp",    $depth_fields, ", KEY `OPT` (ts,price)");
      make_table($pair."__full",    $depth_fields, ", KEY `OPT` (ts,price)");
      make_table($pair."__diff",    $depth_fields, ", KEY `OPT` (ts,price)");
      // try_query("DROP TABLE $pair"."__last");     
@@ -455,15 +430,15 @@
      
   function load_data($pair)
   {
-     global $ts, $api, $last_ts, $date_dir, $last_url;
+     global $ts, $last_ts, $date_dir, $last_url;
      $path =  "/var/www/depth/";
-     check_mkdir($path);
+     // check_mkdir($path);
      $file_name = $path.$pair."_last.json";    
      
-     log_msg("request $pair depth data from exchange server via APIv$api");
-     $txt = get_public_data('depth', $pair, $api, 'limit=2000');
+     log_msg("request $pair depth data from exchange server");
+     $txt = get_public_data('depth', $pair, 3, 'limit=2000');
      log_msg("from $last_url received data size: ".strlen($txt));
-     file_put_contents($file_name,  $txt);     
+     // file_put_contents($file_name,  $txt);
      $tab = json_decode($txt);
      
      $date = new DateTime ('now', new DateTimeZone('UTC'));
@@ -505,27 +480,39 @@
      $pair = $data->pair;
      $ts = $data->ts;    
      
-     $minute = $date->format('i') + 0;     
+     $minute = $date->format('i');     
           
+     if ($minute == 28)
+     {
+       $query = sprintf("DELETE FROM `%s__full` WHERE MINUTE(ts) > 10 LIMIT 100000", $pair);
+       log_msg(" performing clean for $pair... ");
+       try_query($query);
+       log_msg( sprintf(" removed wrong $pair full-data %d lines ", mysql_affected_rows()) );
+       $date = new DateTime ('now', new DateTimeZone('UTC'));
+       $minute = ( $date->format('i') + 0 ); 
+     }
+     else
+       log_msg(" only saving minute $minute");
+   
      $save_full = false;
-     $time_pass = ($minute < 5);
-     
+
+     $time_pass = ($minute < 5 || 30 == $minute);
      if ($date->format('Y-m-d') >= '2017-01-20')
          $time_pass = ($minute % 15 == 0);
-      
-     
-     if ($time_pass)   
+
+     if ($time_pass)
      {
          $full_ts = select_value('ts', $pair.'__full', 'ORDER BY ts DESC');
          $dt = new DateTime($full_ts, new DateTimeZone('UTC'));                  
-         $full_stm = $dt->format('Y-m-d H:i');
-         $curr_stm = $date->format('Y-m-d H:i');          
+         $full_stm = $dt->format('Y-m-d H');
+         $curr_stm = $date->format('Y-m-d H');          
          log_msg ("last full snapshot at $full_ts, round '$full_stm' vs '$curr_stm' \n");         
          $save_full = ($full_stm != $curr_stm); // полный стакан сохраняется каждый чос
      }
+
      // $query = sprintf("RENAME TABLE `depth_history`.`%s_full` TO `depth_history`.`%s__full`;\n", $pair, $pair);
      // log_msg ($query);
-     
+
      log_msg("detecting diff rows");
      // загрузка предыдущих бидов и асков
      
@@ -562,7 +549,7 @@
        $query = "INSERT INTO $pair"."__full($fields)\n";
        $query .= "SELECT $fields FROM $pair"."__asks\n"; 
        try_query($query);
-       log_msg ("$pair-full snapshot also added! \n"); 
+       log_msg ("+++ snapshot also added to $pair-full \n");
      }          
     
      if ($sec < 10)
@@ -576,7 +563,7 @@
         $stats['best_ask'] = $data->asks[0][0];
         $stats['best_bid'] = $data->bids[0][0];            
         log_msg(" spread: {$stats['best_ask']} .. {$stats['best_bid']}. Saldo volume asks = {$stats['volume_asks']}, bids = {$stats['volume_bids']} \n");
-        log_msg(print_r($stats, true));
+        print_r($stats);
         save_depth_stats ($pair, $stats, $data->ts);
      }    
      log_msg("calc & saving spreads");
@@ -591,6 +578,7 @@
   //*
   $start = time();
   
+  $pair = rqs_param('pair', '');
   $loaded = 0;
   
   $count = count($save_pairs);
@@ -600,10 +588,10 @@
   $i = mt_rand(1, $count);
   $force = ($m == 0) || ($m == 30);
    
-   
+
+
   if (strlen($pair) >= 7)
   {
-     log_msg(" single pair $pair update "); 
      $data = load_data($pair);
      save_for_pair($data, true); 
   }
@@ -612,13 +600,11 @@
   while ($loaded < $count) 
   {     
      $i ++; $loaded ++;
+     // copy("save_depth.log", "save_depth_last.log");
      if ($i >= $count) $i = 0;     
-     $elps = time() - $start;
-           
+     $elps = time() - $start;      
      log_msg("[$loaded] elapsed $elps sec ================================================================================================== ");
-     $pair = $save_pairs[$i];
-     if (!strpos($pair, $pair_flt)) continue;
-        
+     $pair = $save_pairs[$i];   
      prepare($pair); 
          
      if (check_updated($pair) && !$force)
@@ -639,11 +625,15 @@
     log_msg("[$pair] elapsed $elps sec saving >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> ");
     $date->modify('now');
     $mn = $m + 1;   
+    // copy("save_depth.log", "logs/depth_$mn.log");
     save_for_pair($data, false);    
   }
   
   mysql_close($link);
-  fflush($log_file);
-  fclose($log_file);
+  if ($log_file)
+  {
+     fflush($log_file);
+     fclose($log_file);
+  }
   
 ?>

@@ -1,5 +1,5 @@
 <?php
-  include_once('common.php');
+  include_once('lib/common.php');
   
   define ('axis_step_x', 200);
   define ('axis_step_y', 50);

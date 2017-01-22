@@ -1,6 +1,6 @@
 <?php
 
-  include_once('common.php');
+  include_once('lib/common.php');
   set_time_limit(30);
   
   $pair = rqs_param('pair', 'btc_usd');

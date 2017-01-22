@@ -256,9 +256,7 @@
   
    function onOpen($connect, $info) 
    {
-     log_msg("ws:open");
-     print_r($info);
-     // fwrite($connect, encode('Привет'));
+     log_msg("ws:open {$info['ip']} ");
    }
   
    function onClose($connect) 

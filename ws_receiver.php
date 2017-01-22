@@ -51,13 +51,14 @@
   
   };
   
-  echo "creating server... \n";
+  echo str_ts_sq()." creating server... \n";
   
   if (!$link) init_db();
   
   $server = new WSDataReceiver();
   
-  echo "starting work loop ...\n";  
+  echo str_ts_sq().". starting work loop ...\n";
+  $start = time();    
   while ($server->work() >= 0)
   {
      usleep(1000);
@@ -65,13 +66,19 @@
      {
        save_trades($pair, true);
        save_bars($pair, true);     
-     } 
-
+     }                     
      $upd_trades = array();         
+     
+     $elps = time() - $start;
+     if ($elps >= 1800)
+     {
+        echo str_ts_sq().". work loop timeout 1/2 hour -> breaking ";
+        break;
+     } 
   }
   // */
   if ($link) $link->close();
     
-  echo "work loop complete! \n";   
-  sleep(3);
+  echo str_ts_sq().". work loop complete! \n";   
+  // sleep();
 ?>

@@ -31,55 +31,71 @@
 
   function save_bars($pair, $force)
   {  
-     global $mysqli, $bars_fields;
+     global $log_file, $mysqli, $bars_fields;
      $table =  $pair.'__bars';     
-     
+     $dir = "logs/trades";
+     check_mkdir($dir);
+
+     $log_file = fopen("$dir/bars_$pair.log", "a+");
+
      log_msg("#DBG(save_bars): getting data for $pair...");
      $tmp = $mysqli->try_query("SHOW CREATE TABLE $table");
      $row = $tmp->fetch_array(MYSQL_NUM);
      if ($row && strpos($row[1], 'CURRENT_TIMESTAMP'))
      {          
         log_msg("WRONG SQL:\n" .$row[1]);
-        $mysqli->try_query("DROP TABLE $table");         
+        $mysqli->try_query("DROP TABLE $table");
+        make_table($table, $bars_fields, ", UNIQUE KEY `TIMESTAMP`(`ts`) ");
      }
+
+     $columns = '`ts`,`open`,`high`,`low`,`close`,`volume`,`last_trade`';
+     $last_bar = $mysqli->select_row($columns, $table, 'ORDER BY ts DESC');
+     $count = 0;   
      
-     make_table($table, $bars_fields, ", UNIQUE KEY `TIMESTAMP`(`ts`) ");
-          
-     $last_trade = $mysqli->select_value('last_trade', $table, 'ORDER BY id DESC');     
-     
+     if (!$last_bar)
+     {
+        log_msg(" select_row returned: ".var_dump($last_bar));
+        $last_bar = array("2001-01-01 00:00:00", 0, 0, 0, 0, 0, -1);
+
+        if ($mysqli->select_value('COUNT(id)', $table) > 0)
+        {
+           log_msg(" fake last_bar used, mysql error: ".$mysqli->error);
+           fclose($log_file); $log_file = false;
+           return;
+        }
+     }
+
+     $last_bts   = $last_bar[0];
+     $last_trade = $last_bar[6];
+
      if (!$last_trade) $last_trade = 0;
-     
+
+     log_msg("last bar time = [$last_bts], tick = [$last_trade]");
+
+
      $fields = 'ts,price,trade_id,volume';
      $ticks = $mysqli->select_from($fields, $pair, "WHERE trade_id > $last_trade ORDER BY trade_id");
      if (!$ticks)
      {
         log_msg('#FATAL(save_bars): no ticks returned!');
+        fclose($log_file); $log_file = false;
         return;
      }
-     
+
      $new_ticks = $ticks->num_rows;
-     
+
      log_msg(" retrived [$new_ticks] ticks after [$last_trade] ");
-     
+
      if (0 == $new_ticks) return false;
-     
-     $columns = '`ts`,`open`,`high`,`low`,`close`,`volume`,`last_trade`';
-     $last_bar = $mysqli->select_row($columns, $table, 'ORDER by id DESC'); 
-     $count = 0;   
-     
-     if (!$last_bar)
-          $last_bar = array("2001-01-01 00:00:00", 0, 0, 0, 0, 0, 0);
-     
+
      $tz = new DateTimeZone('UTC');
-     
-     $bars = array();     
+     $bars = array();
      $tformat = "Y-m-d H:i:00";
-     
-     
+
      $date    = new DateTime($last_bar[0], $tz);
      $last_ts = $date->format($tformat);
      
-     log_msg("last bar time = [$last_ts]");     
+
      $prev_ts = ''; 
      //               O1 H2 L3 C4 V  L6
      $bar = array("2001-01-01 01:01:00", 0, 0, 0, 0, 0, 0);
@@ -119,10 +135,12 @@
        else
        {   
           // never add last_bar, it must be updated!
-          if ($bar[1] > 0 && $bar[0] != $last_ts)
+          if ($bar[1] > 0 && $bar[0] != $last_bts)
           {
               $bar[0] = "'{$bar[0]}'";
               $values = implode($bar, ',');
+              if (count($bars) < 10)
+                  log_msg(" [$last_bts] added new bar: $values");
               // if ($tts >= '2017-01-17 22:47:00') printf("generated bar [%s], last added tick [%s], \n", $values, implode($row, ',')); 
               $bars []= "($values)";
           }
@@ -133,7 +151,9 @@
        $prev_ts = $tts; 
                    
      } // while
-     if ($bar[1] > 0)
+
+
+     if ($bar[1] > 0 && $bar[0] != $last_bts)
      {
          $bar[0] = "'{$bar[0]}'";
          $bars []= '('. implode($bar, ',') .')'; // last uncomplete bar add
@@ -157,23 +177,29 @@
         $query = "INSERT INTO $table($columns)\nVALUES\n";
         $query .= implode($bars, ",\n");        
         echo "$query\n\n";
-        if (!$mysqli->try_query($query))
-             $mysqli->try_query("TRUNCATE TABLE $table"); // need      
+        if(!$mysqli->try_query($query))
+         {
+            log_msg(" on error: cleanup table tail... ");
+            $mysqli->try_query("DELETE FROM $table WHERE last_trade >= $last_trade");
+         }
+
+
+          // $mysqli->try_query("TRUNCATE TABLE $table"); // need
      }
       
-     
-     
-  }    
+     fclose($log_file); $log_file = false;
+  } // save_bars
 
 
   function save_trades($pair, $force)
   {
-     global $mysqli, $btce_api, $trades_fields, $date, $last_url, $db_alt_server, $db_user, $db_pass;
+     global $log_file, $mysqli, $btce_api, $trades_fields, $date, $last_url, $db_alt_server, $db_user, $db_pass;
      $old_id = 0;
      $mysqli->select_db('trades_history');
-     
-     
 
+     $dir = "logs/trades";
+     check_mkdir($dir);
+     $log_file = fopen("$dir/save_$pair.log", "a+");
      make_table_ex("$pair", $trades_fields, 'trade_id', ", KEY `SCAN` (`id`, `ts`, `order_id`)");
 
      // опредление, какие данные в наличии.
@@ -249,7 +275,6 @@
         $diff = date_diff($date, $ref_dt);        
         $upd_age = $diff->s;
         log_msg("#OPT($pair): local data age $upd_age seconds \n"); 
-         
      }
      
      $params = '';
@@ -265,7 +290,8 @@
 
      if (!$force && $upd_age < 90 && $old_id > 0)
      {
-        log_msg("#OPT($pair): request to exchange not need, due data have actual state");     
+        log_msg("#OPT($pair): request to exchange not need, due data have actual state");
+        fclose($log_file); $log_file = false;
         return true;    
      }
 
@@ -320,8 +346,8 @@
 
      }
 
-
-  }
+     fclose($log_file); $log_file = false;
+  } // save_trades
 
 
 

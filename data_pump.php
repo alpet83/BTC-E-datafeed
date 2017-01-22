@@ -1,3 +1,7 @@
+<?php
+  header("Access-Control-Allow-Origin:*");
+?>
+
 <!DOCTYPE html>
 <html lang="ru">
  <head>
@@ -21,8 +25,6 @@
 <?php
    include_once('lib/common.php');
    include_once('lib/config.php');
-   
-
 
    $state = file_get_contents('trade_state.json');
    echo '    <script type="text/javascript">';
@@ -47,7 +49,7 @@
     
     <script type="text/javascript">
     
-        
+    var remote = '10.10.10.50';    
     var ask_last = 0;
     var bid_last = 0;
     // var price_last = 0;
@@ -220,7 +222,9 @@
        {
            var lines = e.innerHTML.split("\n");
            while (lines.length > 500) lines.shift();
-           e.innerHTML = lines.join("\n") + "[" + t + "]. " + text + "</br>\n";
+           var msg = "[" + t + "]. " + text;
+           e.innerHTML = lines.join("\n") + msg  + "</br>\n";
+           if (console) console.log(msg);
        }           
     } 
     
@@ -383,7 +387,8 @@
        sender.send(params);         
          
     */
-     var ws = false; 
+    var ws = false;
+    var ws2 = false; // for remote server 
 
     function open_socket(server = 'ws://10.10.10.97:8000')
     { 
@@ -449,38 +454,47 @@
 
       if (!ws || ws.readyState == 3)
            ws = open_socket();
+      if (!ws2 || ws2.readyState == 3)
+           ws2 = open_socket('ws://' + remote + ':8000');     
                  
       var txt = $.toJSON(data);
-      var url = "upd_depth.php?pair=all";
+      
+      
+      
       if (rentBusy("upd_depth.php") == 0 || sec > 50)
       if (sel == 4 || sel == 9)
       {
+        var url = "upd_depth.php?pair=all";
+        
         if (ws.readyState == 1) 
             ws.send('depth=' + txt);
-      
-        txt = encodeURIComponent(txt);
-        var rqs = rentRqs();
-        /*
-        rq_urls[rqs_num] = url;
-        rqs.open("POST", url, true);       
-        rqs.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');      
-        rqs.send("pair=all&data=" + txt + "&rqs=" + rqs_num);
-                        
-        rqs = rentRqs();      
-        rq_urls[rqs_num] = url;
-        //*/
+        else
+        {
+          var rqs = rentRqs();
+          rqs.open("POST", url, true);       
+          rqs.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');      
+          rqs.send("pair=all&data=" + encodeURIComponent(txt) + "&rqs=" + rqs_num);
+          logMsg(" http depth update local ");                  
+        }           
+               
+        url = "http://" + remote + "/upd_depth.php?pair=all";
         
-        url = "http://10.10.10.50/upd_depth.php?pair=all";
-        rqs.open("POST", url, true);       
-        rqs.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');      
-        rqs.send("pair=all&data=" + txt + "&rqs=" + rqs_num);
-        
-        data_sent = data_sent + txt.length * 2;
+        if (ws2.readyState == 1)
+            ws2.send('depth=' + txt);        
+        else
+        {
+          var rqs = rentRqs();
+          rqs.open("POST", url, true);       
+          rqs.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');      
+          rqs.send("pair=all&data=" + encodeURIComponent(txt) + "&rqs=" + rqs_num);
+          logMsg(" http depth update remote ");                  
+        }
         setHTML('info2', 'rqs_count = ' + rqs_count + ', data_sent = ' + (data_sent / 1024.0) + 'K, sec = ' + sec);
+        data_sent = data_sent + txt.length * 2;
         on_flush();
       }      
       
-      setTimeout(checkDataLag, delay);    
+      setTimeout(checkDataLag, delay);   
     }
     
 
@@ -608,20 +622,25 @@
        
        var params="pair=" + ticker + "&data=" + rec.join();
        
+       // local sync
        if (ws && ws.readyState == 1)
-           ws.send("trade=" + ticker + "," + rec.join());  
-       
-       var rqs = rentRqs();
-              
-       /*       
-       
-       rqs.open("GET", "save_trades.php?" + params, true);
-       rqs.send();
-       rqs = rentRqs();
-       //*/
-       
-       rqs.open("GET", "http://10.10.10.50/save_trades.php?" + params, true);
-       rqs.send();
+           ws.send("trade=" + ticker + "," + rec.join());
+       else
+       {
+          var rqs = rentRqs();
+          rqs.open("GET", "save_trades.php?" + params, true);
+          rqs.send();
+       }  
+
+       // remote sync
+       if (ws2 && ws2.readyState == 1)
+           ws2.send("trade=" + ticker + "," + rec.join());
+       else                  
+       {
+         var rqs = rentRqs();    
+         rqs.open("GET", "http://" + remote + "/save_trades.php?" + params, true);
+         rqs.send();
+       }
     }
 
     

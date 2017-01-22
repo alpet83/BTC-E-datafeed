@@ -1,8 +1,8 @@
-<pre><?php
+<pre>
+<?php
   include_once('lib/btc-e.api.php');
   include_once('lib/common.php');
   include_once('lib/db_tools.php');
-  error_reporting(E_ERROR | E_WARNING | E_PARSE | E_NOTICE);
   
   // return false;
 
@@ -54,11 +54,12 @@
 
   function save_for_pair($pair)
   {
-     global $ts, $date, $date_dir, $ticker_fields, $pmap_fields, $last_url;     
+     global $ts, $date, $date_dir, $ticker_fields, $pmap_fields;     
      $path =  "/var/www/ticker/";
      check_mkdir($path);
-     $file_name = $path.$pair."_last.json";     
-     $txt = get_public_data('ticker', $pair, 4, '');     
+     $file_name = $path.$pair."_last.json";
+     log_msg("request ticker data from exchange server");
+     $txt = get_public_data('ticker', $pair, 3, '');
      // $txt = str_replace(',[', "\n[", $txt);
      // $txt = str_replace(']],', "]]\n", $txt);
      // $txt = str_replace('[[,', "[\n[", $txt);
@@ -71,9 +72,8 @@
      if (isset($tab) && isset($tab->$pair) )     
      {
         // && isset($tab->ticker)
-        log_msg("received ticker data from $last_url");
         $d = $tab->$pair;      
-        // echo (" save ticker data performing pair_id = $id\n ");
+        echo (" save ticker data performing pair_id = $id\n ");
         // var_dump($tab);
         $date->setTimestamp($d->updated);
         $upd = $date->format('Y-m-d H:i:s');

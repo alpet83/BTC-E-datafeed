@@ -25,8 +25,8 @@
 
   echo("script start time: ".$dt->format("H:i:s")."\n");
 
-  include_once('common.php');
-  include_once('config.php');
+  include_once('lib/common.php');
+  include_once('lib/config.php');
   include_once('lib/db_tools.php');
 
   $link = false;

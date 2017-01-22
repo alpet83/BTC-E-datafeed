@@ -466,8 +466,10 @@
   
   function complex_update($data)
   {
-     global $mysqli, $cur_dir, $pid, $log_name;
+     global $log_file, $mysqli, $cur_dir, $pid, $log_name;
+     if ($log_file) fclose($log_file);
      
+     $log_file = tmpfile();
      $log_name = "$cur_dir/logs/upd_depth_$pid.log";
      $fh = fopen($log_name, "a+");
      

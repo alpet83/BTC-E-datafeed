@@ -34,7 +34,7 @@
      function select_row($fields, $table, $params, $type = MYSQL_NUM)
      {
         $r = $this->select_from($fields, $table, "$params\n LIMIT 1", $type);     
-        if (!$r) return null;           
+        if (!$r || 0 == $r->num_rows) return null;
         return $r->fetch_array($type);  
      } 
       
