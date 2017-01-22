@@ -44,9 +44,9 @@
   function get_depth_changes($pair, $filter)
   {
      global $link;    
-     $query = "SELECT * FROM $pair"."_diff\n";
+     $query = "SELECT * FROM $pair"."__diff\n";
      $query .= $filter;     
-     $query .= "ORDER BY id\n";     
+     $query .= "ORDER BY ts\n";
      $res = mysql_query($query) or die("Failed <$query> with errors:\n".mysql_error());
      return convert_depth_data($res);           
   }                         
@@ -512,7 +512,11 @@
      $data = array();
      
      if ($snap_time == 'now')  
-         $data = get_full_depth ($pair, '__last', $filter."\n");
+     {
+         $asks = get_full_depth ($pair, '__asks', $filter."\n");
+         $bids = get_full_depth ($pair, '__bids', $filter."\n");
+         $data = array_merge($bids, $asks);
+     }
      else
          $data = get_past_depth ($pair, $filter);
           

@@ -1,13 +1,13 @@
 <?php
   include_once('common.php');
   $table_params = "";
+  $ustr = '_';
 
   // ", KEY `TIMESTAMP` (`ts`)"
   $link   = false;
   $mysqli = false;
   $double_field = "double NOT NULL DEFAULT '0'";
   $float_field  = "float NOT NULL DEFAULT '0'";
-  
     
   // OOP wrapper
   class mysqli_ex extends mysqli 
@@ -26,19 +26,19 @@
         return $result;
      } // try_query  
      
-     function select_from($fields, $table, $params, $rmode = MYSQLI_STORE_RESULT)
+     function select_from($fields, $table, $params = '', $rmode = MYSQLI_STORE_RESULT)
      {       
         return $this->try_query("SELECT $fields FROM $table\n$params", $rmode);        
      }
 
-     function select_row($fields, $table, $params, $type = MYSQL_NUM)
+     function select_row($fields, $table, $params = '', $type = MYSQL_NUM)
      {
         $r = $this->select_from($fields, $table, "$params\n LIMIT 1", $type);     
-        if (!$r || 0 == $r->num_rows) return null;
+        if (!$r) return null;           
         return $r->fetch_array($type);  
      } 
       
-      function select_value($field, $table, $params)
+      function select_value($field, $table, $params = '')
       {
         $row = $this->select_row($field, $table, $params);
         if ($row)

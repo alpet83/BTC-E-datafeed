@@ -26,7 +26,7 @@
   
   define('MIN_VOLUME', 0.005);
   
-  $date = new DateTime ('now', new DateTimeZone('UTC'));
+  $date = utc_time();
   $date_dir = "$cur_dir/depth/".$date->format('Ymd');
   $ts = $date->format('Y-m-d H:i:s');
   $last_ts = '';
@@ -133,9 +133,8 @@
     return "('$ts',{$rec[0]},{$rec[1]},$flags)";      
   }
 
-  function save_diff_row($pair, $price, $vol, $flags)
-  {
-    global $ts; 
+  function save_diff_row($pair, $price, $vol, $ts, $flags)
+  {      
     $head = "INSERT INTO $pair"."__diff ";
     $head .= "(ts,price,volume,flags) ";
     $head .= "VALUES ";
@@ -168,11 +167,10 @@
   
   function exec_multi($query, $context)
   { 
-     global $mysqli;
-     
-     $query = rtrim($query, ",;\n");
-     
+     global $mysqli;     
+     $query = rtrim($query, ",;\n");      
      log_msg("[$context] query size: ".strlen($query));
+     // log_msg($query);
      if ($mysqli->multi_query($query))
      {
          $cnt = 0;                  
@@ -231,6 +229,8 @@
           
      $query = '';
      $count = 0;         
+     $min_price = 1e100;
+     $max_price = 0;
           
      if (isset ($data->ask))
      {
@@ -239,8 +239,11 @@
         foreach ($ask as $row)
         {
            fprintf($log_file, "\tchanging ask: %s \n", implode($row, ','));
-           if (update_depth($table, $row, 2))                  
-               save_diff_row($pair, $row[0], $row[1], 2);
+           if (update_depth($table, $row, 2))
+           {                  
+               save_diff_row($pair, $row[0], $row[1], $row[2], 2);
+               $min_price = min($min_price, $row[0]);
+           }    
            $count ++;
         }        
      }
@@ -252,7 +255,10 @@
         {
            fprintf($log_file, "\tchanging bid: %s \n", implode($row, ','));
            if (update_depth($table, $row, 1))        
-               save_diff_row($pair, $row[0], $row[1], 1);
+           {
+               save_diff_row($pair, $row[0], $row[1], $row[2], 1);
+               $max_price = min($max_price, $row[0]);
+           }   
            $count ++;
         }        
      }
@@ -264,6 +270,11 @@
      
      exec_multi($insert_cache, "insert diff");
      // try_query( 'UNLOCK TABLES' );
+     
+     if ($min_price > 0)             
+         $mysqli->try_query("DELETE FROM $pair\137_bids WHERE price >= $min_price"); // в бидах не должно быть высоких цен  
+     if ($max_price > $min_price)             
+         $mysqli->try_query("DELETE FROM $pair\137_asks WHERE price <= $max_price"); // в асках не должно быть низких цен  
              
      $query_cache = "";
      $insert_cache = "";
@@ -339,6 +350,10 @@
   function save_depth($pair, $force = false, $data = false)
   {
      global $ts, $date, $mysqli, $last_ts, $date_dir, $depth_fields, $stats_fields, $trades_fields, $last_url;
+     $date = utc_time();
+     $ts = $date->format('Y-m-d H:i:s');
+     $last_ts = $ts;
+     
      $path =  "/var/www/depth/";
      check_mkdir($path);
      $file_name = $path.$pair."_last.json";   
@@ -355,10 +370,11 @@
      
      $save_full = false;
      $minute = $date->format('i') + 0;
+     $last_ts = $mysqli->select_value('ts' , "$pair\137_full", 'ORDER BY ts DESC');  
      
-     if (isset($last_ts) && $minute > 0)
+     if ($last_ts && strlen($last_ts) > 7 && $minute % 15 == 0)
      {
-         $dt = new DateTime($last_ts, new DateTimeZone('UTC'));
+         $dt = utc_time($last_ts);
          $table = $pair.'__full';
          
          $full_ts = $mysqli->query("SELECT ts FROM $table ORDER BY ts DESC LIMIT 1");
@@ -370,8 +386,8 @@
          if ($full_ts && strlen($full_ts) > 7)
          {           
             $dt->modify($full_ts);                
-            $last_stm = $dt->format('Y-m-d H');
-            $curr_stm = $date->format('Y-m-d H'); 
+            $last_stm = $dt->format('Y-m-d H:i');
+            $curr_stm = $date->format('Y-m-d H:i'); 
             
             log_msg ("#CHECK_HR: full snapshot at $full_ts, round '$last_stm' vs '$curr_stm' \n");
             $save_full = ($last_stm != $curr_stm); // полный стакан сохраняется каждый чос
@@ -402,7 +418,19 @@
         
         $sec = $date->format('s') + 0;
         
-        if ( $sec == 0 )
+        $add_stats = ($sec % 10 == 0);
+        
+        $last_ts = $mysqli->select_value('ts', "$pair\137_stats", 'ORDER BY id DESC');
+        if ($last_ts)
+        {        
+           $last_ts = utc_time($last_ts);
+           $elps = $date->getTimestamp() - $last_ts->getTimestamp();
+           log_msg(" stats was updated $elps seconds ago");
+           if ($elps >= 30) 
+               $add_stats = true;            
+        }
+        
+        if ( $add_stats )
         {
           $stats = array();    
           $asks = array();
@@ -430,14 +458,23 @@
           
           if (isset($asks[0]))
               $stats['best_ask'] = $asks[0][0];
-          if (isset($bids[0]))    
-              $stats['best_bid'] = $bids[0][0];                  
-          log_msg(" spread: {$stats['best_ask']} .. {$stats['best_bid']}. Saldo volume asks = {$stats['volume_asks']}, bids = {$stats['volume_bids']} \n");        
-          log_msg(" stats: ". print_r($stats, true));
-          if ($stats['best_bid'] > 0 && $stats['best_bid'] < $stats['best_ask']) 
-              save_depth_stats ($pair, $stats);
-          save_spreads($pair, $asks, $bids);
+              
+          if (count($bids) > 0)    
+              $stats['best_bid'] = $bids[count($bids) - 1][0];
           
+                                
+          
+          if ($stats['best_bid'] > 0 && $stats['best_bid'] < $stats['best_ask'])
+          {
+              log_msg(" spread: {$stats['best_bid']} .. {$stats['best_ask']}. Saldo volume bids = {$stats['volume_bids']}, bids = {$stats['volume_asks']} \n");      
+              save_depth_stats ($pair, $stats);
+          }    
+          else
+          {
+              log_msg("invalid stats: ". print_r($stats, true));
+              log_msg("#WARN: save_depth_stats not performed ");
+          }          
+          save_spreads($pair, $asks, $bids);          
           // cleanup
         }
      }
@@ -475,7 +512,6 @@
      
      fprintf($fh, str_ts_sq()." updating for all pairs \n");
      $start = precise_time();         
-          
           
      $mysqli->select_db('depth_history');     
      

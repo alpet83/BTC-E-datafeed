@@ -273,7 +273,7 @@
          $this->onText($connect, $text);
          
      if ($type == 'ping')
-         fwrite($connect, encode('', 'pong'));    
+         fwrite($connect, $this->encode('', 'pong'));    
    }
    
    function onText($connect, $text)
