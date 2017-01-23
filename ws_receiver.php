@@ -20,7 +20,7 @@
       if (strpos($text, "depth=") !== FALSE)
       {
           $text = str_replace('depth=', '', $text);
-          echo ( str_ts_sq().". #DBG: processing depth data, size: ".strlen($text)."\n");
+          echo ( str_ts_sq().". #DEPTH: processing data, size: ".strlen($text)."\n");
           // echo "$text\n";
           
           if (strlen($text) < 10) return;
@@ -28,7 +28,8 @@
           $data = json_decode($text);          
           
           if (!$link) init_db('depth_history');
-          complex_update($data);          
+          complex_update($data);      
+          echo ( str_ts_sq().". #DEPTH: data saved to DB \n" );    
           return;
       }
       if (strpos($text, "trade=") !== FALSE)
@@ -38,9 +39,9 @@
           if ($ticker && strlen($ticker) >= 7)
           {
             $upd_trades[$ticker] = true;
-            log_msg("$ticker marked as updated");
-          }
-          return;
+            echo ( str_ts_sq().". #TRADE: $ticker marked as updated \n" );
+            return;
+          }          
       }    
           
     

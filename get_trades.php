@@ -35,7 +35,8 @@
      $lines[]= $l;                
      if (count($lines) > 1000)
      {
-        echo implode($lines, "\n");
+        echo implode($lines, "\n")."\n";
+        flush();
         $lines = array();        
      } 
   
