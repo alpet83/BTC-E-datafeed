@@ -2,6 +2,8 @@
   date_default_timezone_set("Europe/Moscow");
   $err_log = "logs/error.log";
   
+  $session_logs = array();
+  
   error_reporting(E_ERROR | E_WARNING | E_PARSE | E_NOTICE);
 
   function utc_time($ts = 'now')
@@ -16,6 +18,7 @@
     
     $usec = sprintf('%.3f', $usec);
     $usec = str_replace('0.', '', $usec); //
+    $usec = str_replace('1.', '', $usec); //
     return $date->format('H:i:s.').$usec;
   }
   
@@ -42,7 +45,7 @@
   {
     global $log_file;
     
-    $line = str_ts_sq().". $msg.$suffix"; 
+    $line = str_ts_sq().". $msg$suffix"; 
    
     if ($log_file)    
         fputs($log_file, $line);

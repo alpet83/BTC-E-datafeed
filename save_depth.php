@@ -75,7 +75,7 @@
   
 
   $depth_fields = array('id' => 'int(11) unsigned NOT NULL AUTO_INCREMENT');
-  $depth_fields['ts'] = 'timestamp NOT NULL';
+  $depth_fields['ts'] = 'timestamp(3) NULL';
   $depth_fields['price']  = $double_field;
   $depth_fields['volume'] = $double_field;
   $depth_fields['flags'] = 'int(11) NOT NULL';

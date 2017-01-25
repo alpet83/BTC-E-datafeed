@@ -9,8 +9,8 @@
   include_once('lib/common.php');
   include_once('lib/config.php');
   include_once('lib/db_tools.php');
-
-  $pair = rqs_param('pair', '');
+  
+  
   
   check_mkdir('./logs');
   check_mkdir('./tmp');
@@ -67,13 +67,21 @@
 
   $commits = 0; // сколько добавленно в таблицу дифф
 
-  check_mkdir($date_dir);
+  // check_mkdir($date_dir);
 
   
   $insert_cache = "";
   $insert_bids = array();
   $insert_asks = array();
+  $d_updates   = array();
   $zero_volume = 0;
+  
+  foreach ($save_pairs as $i => $pair)  
+  { 
+     $d_updates[$pair] = 0; 
+  }
+  
+  $pair = rqs_param('pair', '');
     
   function cache_insert($head, $row)
   {
@@ -88,9 +96,9 @@
   function load_last_depth($pair, $suffix)
   {
     global $mysqli;
-    $query = "SELECT price, volume FROM $pair$suffix\n";
-    $query .= "ORDER BY price ";
-    if (strpos($suffix, '__bids')) $query .= "DESC;";
+    $query = "SELECT price, volume FROM $pair$suffix\n"; 
+    $query .= "ORDER BY price ";                         // самый майлый аск - первый
+    // if (strpos($suffix, '__bids')) $query .= "DESC;";   // самый большой бид - первый
     // echo("Executing $query\n");
     $result = $mysqli->query($query); 
     if (!$result) die("Failed <$query> with errors:\n".$mysqli->error);    
@@ -270,6 +278,12 @@
      
      exec_multi($insert_cache, "insert diff");
      // try_query( 'UNLOCK TABLES' );
+     $v = $mysqli->select_value('MIN(price)', "$pair\137_asks");
+     if ($v) $min_price = min($min_price, $v); 
+     $v = $mysqli->select_value('MAX(price)', "$pair\137_bids");     
+     if ($v) $max_price = max($max_price, $v); 
+     
+     log_msg("  min(asks) = $min_price, max(bids) = $max_price "); 
      
      if ($min_price > 0)             
          $mysqli->try_query("DELETE FROM $pair\137_bids WHERE price >= $min_price"); // в бидах не должно быть высоких цен  
@@ -298,10 +312,11 @@
 
   function save_spreads($pair, $asks, $bids)
   {
-     global $ts, $mysqli, $spreads_fields;
+     global $ts, $mysqli, $spreads_fields, $d_updates;
      
      // $query = sprintf("ALTER TABLE `%s__spreads` CHANGE `id` `id` INT(10) UNSIGNED NOT NULL AUTO_INCREMENT", $pair);
-     make_table($pair."__spreads", $spreads_fields, ", UNIQUE KEY `TIMESTAMP` (`ts`)");
+     if ($d_updates[$pair] < 5)           
+          make_table($pair."__spreads", $spreads_fields, ", UNIQUE KEY `TIMESTAMP` (`ts`)");
      
      $query = "INSERT INTO $pair".'__spreads (';
      $query .= '`buy_0.1`, buy_1, buy_10, buy_100, buy_1000,';
@@ -344,25 +359,99 @@
      //printf(" sell levels: [%s] \n", implode(',', $prices));
   
   }
+
+  function load_remote_depth($pair)
+  {
+     global $mysqli, $last_ts, $db_alt_server, $db_user, $db_pass;
+      
+     $last_ts = $mysqli->select_value('ts' , "$pair\137_diff", 'ORDER BY ts DESC');
+     
+     $date = utc_time($last_ts);
+     if (time() - $date->getTimestamp() < 10)
+     {
+        log_msg("load remote depth ignored, due data actual");
+        return; // local data was actual
+     }
+       
+       
+     $remote = new mysqli_ex($db_alt_server, $db_user, $db_pass);
+     if ($remote && 0 == mysqli_connect_errno())
+     {
+        $date->setTimestamp( time() - 5 ); // go to past        
+        $limit = $date->format('Y-m-d H:i:s');
+     
+     
+        log_msg("#OPT($pair): checking data on remote server $db_alt_server  ...");
+        $fields = 'ts, price, volume, flags';
+        $query  = "SELECT $fields FROM trades_history.$pair\n";
+        $query .= " WHERE (ts > '$last_ts') and (ts < '$limit') \n";
+        $query .= ' ORDER BY ts';        
+        log_msg($query);
+        $result = $remote->try_query($query);
+        
+        $lines = array();
+         
+        if ($result)        
+        while($row = $result->fetch_array(MYSQL_NUM))
+        {             
+           $row[0] = "'".$row[0]."'";
+           $l = '('.implode($row, ',').')';
+           // print_r($row);
+           //echo "$l \n";                   
+           $lines []= $l;
+        } 
+        else
+          log_msg(" query [$query] failed with error: ".$remote->error);
+        $remote->close();
+          
+        // log_msg('#PERF: request complete!');  
+          
+        if (count($lines) > 0)
+        {  
+          // print_r($lines);
+          $query = "INSERT INTO $pair\137_diff ($fields) VALUES\n";
+          $query .= implode($lines, ",\n");
+          log_msg(" adding remote quotes: ".count($lines));
+          // echo "$query\n";
+          $mysqli->try_query($query);   
+        }  
+                
+                
+     }     
+     else
+        log_msg(" failed connect to remote server $db_alt_server");
+  
+  }
   
   
 
-  function save_depth($pair, $force = false, $data = false)
+  function update_for_pair($pair, $force = false, $data = false)
   {
-     global $ts, $date, $mysqli, $last_ts, $date_dir, $depth_fields, $stats_fields, $trades_fields, $last_url;
+     global $ts, $date, $mysqli, $last_ts, $date_dir, $depth_fields, $stats_fields, $trades_fields, $last_url, $d_updates;
+     
+     $mysqli->select_db('depth_history');
+     $d_updates[$pair] ++;
+     
+     if ($d_updates[$pair] < 5)
+     {
+        $mysqli->try_query("DELETE TABLE IF EXISTS $pair\137_last;");
+     }
+     
      $date = utc_time();
      $ts = $date->format('Y-m-d H:i:s');
      $last_ts = $ts;
      
      $path =  "/var/www/depth/";
      check_mkdir($path);
-     $file_name = $path.$pair."_last.json";   
+     $file_name = $path.$pair."_last.json";
+     
+     load_remote_depth($pair);
           
      $upd = insert_diff($pair, $data);
      if ($upd >= 0)
          log_msg("stored $upd rows");
      else
-         log_msg("save_depth: failed load from data:\n ".print_r($data, true)); 
+         log_msg("update_for_pair: failed load from data:\n ".print_r($data, true)); 
      
      // return true;
      // $query = sprintf("RENAME TABLE `depth_history`.`%s_full` TO `depth_history`.`%s__full`;\n", $pair, $pair);
@@ -439,6 +528,7 @@
           // загрузка предыдущих бидов и асков
           $last_asks = load_last_depth($pair, '__asks');
           $last_bids = load_last_depth($pair, '__bids');
+          // оба массива отсортированы по возрастанию цены(!)
           
           
           while ($row = $last_asks->fetch_array(MYSQL_NUM))          
@@ -473,17 +563,22 @@
           {
               log_msg("invalid stats: ". print_r($stats, true));
               log_msg("#WARN: save_depth_stats not performed ");
+              $first_bid = $bids[0][0];
+              $last_bid  = $bids[count($bids) - 1][0];
+              log_msg(" first_bid: $first_bid, last_bid: $last_bid"); 
+              
           }          
           save_spreads($pair, $asks, $bids);          
           // cleanup
-        }
+        }                
      }
      
+          
      log_msg("#COMPLETE:-------------------------------------------- )");		
      
 	}
     
-  // foreach ($save_pairs as $pair) save_depth($pair);
+  // foreach ($save_pairs as $pair) update_depth($pair);
   //*
   function update_log($pair, $open_new = false)
   {
@@ -491,7 +586,8 @@
     
     fflush($log_file);  
     fseek($log_file, 0);
-    $c = fread($log_file, 65536);
+    $c = fread($log_file, 65536);     
+    
     $f = fopen("$cur_dir/logs/upd_depth_$pair.log", 'a+');
     fclose($log_file);
     
@@ -503,40 +599,43 @@
   
   function complex_update($data)
   {
-     global $log_file, $mysqli, $cur_dir, $pid, $log_name;
+     global $log_file, $session_logs, $mysqli, $cur_dir, $pid, $log_name, $d_updates;
      if ($log_file) fclose($log_file);
      
      $log_file = tmpfile();
-     $log_name = "$cur_dir/logs/upd_depth_$pid.log";
+     $log_name = "$cur_dir/logs/cmpx_depth_$pid.log";
+     // if (array_search($log_name, $session_logs) === false)
+     $session_logs [$log_name]= true; // updated    
+     
      $fh = fopen($log_name, "a+");
      
      fprintf($fh, str_ts_sq()." updating for all pairs \n");
      $start = precise_time();         
           
-     $mysqli->select_db('depth_history');     
+         
      
      foreach($data as $pair => $rec)
      if ($rec->ask || $rec->bid)
      {
        // log_msg("data [$pair]:\n".print_r($rec,true)); 
        fprintf($fh, str_ts_sq()."\t processing $pair \n");
-       save_depth($pair, true, $rec);              
+       update_for_pair($pair, true, $rec);              
        update_log("$pair+", true);
      } 
      $end = precise_time();
      
      $elps = diff_time_ms($start, $end);     
-     
+
+     fprintf($fh, " stats updates by pair:\n %s \n", print_r($d_updates, true));
      fprintf($fh, str_ts_sq()." elps = %.3f ms (%f -> %f) ---------------------------------------------------------------------------------- \n", $elps, $end[1], $start[1]);
      fclose($fh);  
   }
 
    
-   
   if (strlen($pair) >= 7)
   {  
      init_db('depth_history');
-     save_depth($pair, true); 
+     update_for_pair($pair, true); 
   }
   else
   if ($pair == 'all') //  && isset($_POST['data'])

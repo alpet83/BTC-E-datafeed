@@ -114,8 +114,7 @@
           $bar = $last_bar; // adding new ticks to bar
           $prev_ts = $last_ts;          
           $values = implode($bar, ',');
-          printf("last_bar [%s], adding tick [%s], \n", $values, implode($row, ',')); 
-          
+          // log_msg ( sprintf("last_bar [%s], adding tick [%s], \n", $values, implode($row, ',')) );
        }
        
        $price = $row[1];
@@ -139,8 +138,7 @@
           {
               $bar[0] = "'{$bar[0]}'";
               $values = implode($bar, ',');
-              if (count($bars) < 10)
-                  log_msg(" [$last_bts] added new bar: $values");
+              if (count($bars) < 10) log_msg(" [$last_bts] added new bar: $values");
               // if ($tts >= '2017-01-17 22:47:00') printf("generated bar [%s], last added tick [%s], \n", $values, implode($row, ',')); 
               $bars []= "($values)";
           }
@@ -167,7 +165,7 @@
         $query = "UPDATE $table\n";
         $query .= "SET high={$b[2]}, low={$b[3]}, close={$b[4]}, volume={$b[5]}, last_trade={$b[6]}\n";
         $query .= "WHERE ts='{$last_ts}'";
-        echo "$query\n\n";
+        // echo "$query\n\n";
         $mysqli->try_query($query);   
      }
            
@@ -176,7 +174,7 @@
         log_msg ("parsed [$count] ticks, generated [$cnt] new bar(s) \n");
         $query = "INSERT INTO $table($columns)\nVALUES\n";
         $query .= implode($bars, ",\n");        
-        echo "$query\n\n";
+        // echo "$query\n\n";
         if(!$mysqli->try_query($query))
          {
             log_msg(" on error: cleanup table tail... ");
@@ -214,11 +212,9 @@
        $last_ts = $row[1]; 
      }
 
-     $remote = new mysqli_ex($db_alt_server, $db_user, $db_pass);
-     
+
      $date = utc_time();
-     
-     
+     $remote = new mysqli_ex($db_alt_server, $db_user, $db_pass);
      if ($remote && 0 == mysqli_connect_errno())
      {
         log_msg("#OPT($pair): have trades with id < $old_id, checking data on remote server $db_alt_server  ...");
@@ -340,7 +336,7 @@
 
         if ($count > 0)
         {
-           echo("trades add: $query \n");
+           // echo("trades add: $query \n");
            $mysqli->query($query);
         }
 

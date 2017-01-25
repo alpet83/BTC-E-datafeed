@@ -174,29 +174,21 @@
 
   function pair_id($pair)
   {
-    $query = "SELECT id FROM pair_map\n";
-    $query .= "WHERE pair = '$pair';\n";
-    // echo ("pair_id query:\n $query ");
-    $result = mysql_query($query) or die("Failed <$query> with errors:\n".mysql_error());
-    $row = false;
-    if ($result)
-        $row = mysql_fetch_array ( $result, MYSQL_NUM );
+    global $mysqli;
+    
+    $row = $mysqli->select_row('id', 'pair_map', "WHERE pair = '$pair'");
 
     if ( !$row || count($row) == 0 )
     {
        $add = "INSERT INTO pair_map (pair) VALUES('$pair');";
        log_msg("add_rqs: $add ");
-       $result = mysql_query($add);
-       if ($result) mysql_free_result($result);
-       $result = mysql_query($query);
-       $row = mysql_fetch_array ( $result, MYSQL_NUM );
+       $mysqli->try_query($add);              
+       $row = $mysqli->select_row('id', 'pair_map', "WHERE pair = '$pair'");       
     }
-
 
     $id = -1;
 
-    if ( count($row) > 0 ) $id = $row [0];
-    if ($result) mysql_free_result($result);
+    if ( count($row) > 0 ) $id = $row [0];    
     return $id;
   }
 

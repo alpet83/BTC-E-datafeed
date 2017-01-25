@@ -3,7 +3,7 @@
   include_once('lib/config.php');
   include_once('lib/db_tools.php');  
   include_once('lib/web_socket.php');
-  include_once('save_trades.php');
+  include_once('save_trades.php');  
   include_once('upd_depth.php');
     
   
@@ -29,7 +29,7 @@
           
           if (!$link) init_db('depth_history');
           complex_update($data);      
-          echo ( str_ts_sq().". #DEPTH: data saved to DB \n" );    
+          echo ( str_ts_sq().". #DEPTH: data saved to DB \n" );              
           return;
       }
       if (strpos($text, "trade=") !== FALSE)
@@ -60,6 +60,8 @@
   
   echo str_ts_sq().". starting work loop ...\n";
   $start = time();    
+  file_put_contents('command_ws.txt', 'nope');
+  
   while ($server->work() >= 0)
   {
      usleep(1000);
@@ -71,15 +73,34 @@
      $upd_trades = array();         
      
      $elps = time() - $start;
-     if ($elps >= 1800)
+     
+     $cmd = file_get_contents('command_ws.txt');
+     $cmd = trim($cmd);
+     
+     if ($elps >= 1800 || strpos($cmd, 'stop'))
      {
-        echo str_ts_sq().". work loop timeout 1/2 hour -> breaking ";
+        echo str_ts_sq().". work loop breaking... ";
         break;
-     } 
+     }
+          
   }
+  
+  
   // */
   if ($link) $link->close();
-    
+
+  $old_logs = getcwd().'/logs/old/';
+  check_mkdir($old_logs);
+
+  foreach ($session_logs as $lname => $val)
+  if($val)
+  {
+    $pi = pathinfo($lname);
+    $name = $old_logs.$pi['basename'];
+    log_msg("moving $lname to $name");
+    rename($lname, $name); 
+  }  
+  $session_logs = array();  
   echo str_ts_sq().". work loop complete! \n";   
   // sleep();
 ?>

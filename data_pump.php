@@ -70,7 +70,7 @@
     var post_queue = new Array();
          
     var nodes_cache = new Object(); // для хранения указателей на узлы под Осла
-    var last_min = 0;      
+    var last_min = -1;      
     var last_funds = new Object();
     var last_trade = new Object();
     var depth_data = new Array();
@@ -170,9 +170,11 @@
         
        return LZ(h) + ":" + LZ(t.getMinutes()) + ":" + LZ(t.getSeconds());
     }
-    function fullTimeStr(t, sep)
+    function fullTimeStr(t, sep, GMT = false)
     {
-       return LZ(t.getHours()) + sep + LZ(t.getMinutes()) + sep + LZ(t.getSeconds()) + "." + LZ3(t.getMilliseconds());
+       var h = t.getHours();
+       if (GMT) h = t.getUTCHours();       
+       return LZ(h) + sep + LZ(t.getMinutes()) + sep + LZ(t.getSeconds()) + "." + LZ3(t.getMilliseconds());
     }
     
     function setTBodyInnerHTML(tbody, html) 
@@ -217,14 +219,19 @@
     function logMsg(text)
     {
        var e = elem("debug_log");
-       var t = timeToStr(new Date());
+       var t = fullTimeStr(new Date(), ':');
        if (e)       
        {
            var lines = e.innerHTML.split("\n");
            while (lines.length > 500) lines.shift();
            var msg = "[" + t + "]. " + text;
-           e.innerHTML = lines.join("\n") + msg  + "</br>\n";
+           
            if (console) console.log(msg);
+           if (msg.search("#WARN") + msg.search("#ERROR") > 0 )
+               msg = "<font color='red'>" + msg + "</font>"; 
+           
+           e.innerHTML = lines.join("\n") + msg  + "</br>\n";
+           
        }           
     } 
     
@@ -297,9 +304,6 @@
     
     var pusher = null; 
     
-    var sender   = makeXMLRequest();
-    
-    var notifier  = makeXMLRequest();
        
     var rq_list = new Array( );   
     var rq_rent = new Array( );
@@ -376,17 +380,6 @@
            e.innerHTML = "NULL";    
     }
  
-  
-
-    /*
-       trade_state[ticker] = state;       
-       var txt = $.toJSON (trade_state);
-       sender.open("POST", "quoter.php", true);
-       var params = "action=upd_state&trade_state=" + encodeURIComponent(txt);
-       sender.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
-       sender.send(params);         
-         
-    */
     var ws = false;
     var ws2 = false; // for remote server 
 
@@ -503,13 +496,8 @@
        var time_last = new Date();  // received was
        var txt = $.toJSON (data);
        var i = 0;
-       
-              
        // if (ticker != "btc_rur") return;
        
-       // var rec = new Object();
-       // rec.time = time_last;       
-       // rec.data = data;             
        var rec = null;              
        var flt = null;
               
@@ -531,7 +519,7 @@
        for (var i = 0; i < flt.length; i ++)
        if (flt[i] == txt)
        {       
-          logMsg("<font color='red'> duplicate data for " + ticker + ": " + txt + "</font>");
+          logMsg("#WARN: duplicate data for " + ticker + ": " + txt);
           return false;
        }   
        flt.push(txt);
@@ -543,7 +531,7 @@
        
        // depth_data[ticker];       
        
-       var ts = dateToStr(time_last, true) + ' ' + timeToStr (time_last, true);
+       var ts = dateToStr(time_last, true) + ' ' + fullTimeStr (time_last, ':', true);
        // setHTML("info4", ticker + " depth rec: " + data.join());       
        //                         
        if (data.ask)       
@@ -612,12 +600,17 @@
        var txt = $.toJSON (trade_state);
        
        // random update if trade.time at 0 sec
-       if (time_last.getSeconds() == 0 && sender.readyState == 4)
+       var mfix = Math.floor( time_last.getMinutes() / 5 ) * 5;
+       
+       if (last_min != mfix)
        {       
-          sender.open("POST", "data_pump.php", true);
+          var rqs = rentRqs();
+          last_min = mfix;          
+          rqs.open("POST", "data_pump.php", true);
           var params = "action=upd_state&trade_state=" + encodeURIComponent(txt);
-          sender.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
-          sender.send(params);
+          rqs.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+          rqs.send(params);
+          setHTML("info4", " updating self.trade_state, last_min = " + last_min);
        }
        
        var params="pair=" + ticker + "&data=" + rec.join();
@@ -703,35 +696,26 @@
        function add_dcells($data) 
        { foreach ($data as $text) echo("<td>$text</td>\n"); }
        
-       function add_ticker_table($ticker)     
+       function add_ticker_row($ticker)     
        {            
-          $tab_header = '<table border="1" width="400" cellpadding="7" style="border-collapse:collapse;">'."\n";
-          echo($tab_header); 
-          echo("<tr>"); 
-          add_hcells( array("Side", "Ticker", "Price", "Qty", "Received") );
+           
           echo("<tr>");
           $flds = array("side", "ticker", "price", "qty", "time");
           foreach ($flds as $fld) add_dcells( array("<div id='$ticker.$fld'></div>") );
-          echo("</table>");   
+             
        }
 
+       $tab_header = '<table border="1" width="400" cellpadding="7" style="border-collapse:collapse;">'."\n";
+       echo($tab_header);
+       echo("<tr>"); 
+       add_hcells( array("Side", "Ticker", "Price", "Qty", "Received") );       
        foreach ($save_pairs as $pair)
        {
-       	  add_ticker_table($pair);
-       }       
+       	  add_ticker_row($pair);
+       }  
+       echo("</table>");     
     ?>
     
-  
-    
-    
-    <table border="1" width="700" cellpadding="7" style="border-collapse:collapse;">
-     <tr>
-       <td>Target ask price<td><div id="ask_target"></div>
-     <tr>
-       <td>Target bid price<td><div id="bid_target"></div>  
-    </table>
-
-
     <h2>Works/Jobs</h2>
     <table border="1" width="700" cellpadding="7" style="border-collapse:collapse;">
       <thead><tr><th width="250">Name<th width="150">Target<th width="300">Status</thead>

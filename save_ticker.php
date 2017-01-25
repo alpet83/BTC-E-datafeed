@@ -1,14 +1,15 @@
-<pre>
 <?php
   include_once('lib/btc-e.api.php');
   include_once('lib/common.php');
+  include_once('lib/config.php');
   include_once('lib/db_tools.php');
+  error_reporting(E_ERROR | E_WARNING | E_PARSE | E_NOTICE);
   
   // return false;
 
-  set_time_limit(30);
+  set_time_limit(300);
   
-  $date = new DateTime ('now', new DateTimeZone('UTC'));
+  $date = utc_time();
   $date_dir = "/var/www/ticker/".$date->format('Ymd');
   // check_mkdir($date_dir);
 
@@ -21,50 +22,73 @@
   
 
 
-  $ticker_fields = array('id' => id_field);
-  $ticker_fields['ts'] = dt_field;
+  $ticker_fields = array();  
   // $ticker_fields['server_time'] = dt_field;
-  $ticker_fields['ticker_id']   = 'int(11) NOT NULL';  
+  // $ticker_fields['ticker_id']   = 'int(11) NOT NULL';
+  $ticker_fields['ts']          = 'TIMESTAMP(3) NOT NULL';
   $ticker_fields['buy']         = float_field;
   $ticker_fields['sell']        = float_field;   
   $ticker_fields['last']        = float_field;
   $ticker_fields['volume']      = float_field;
   $ticker_fields['volume_cur']  = float_field;
-  $ticker_fields['updated']     = dt_field;
-  
-  $pmap_fields = array('id' => id_field);
-  $pmap_fields['pair'] = 'varchar(31)';
-  
-  
-
+  $ticker_fields['updated']     = 'TIMESTAMP(3) NULL';
+ 
   
   $commits = 0; // сколько добавленно в таблицу дифф
+                       
 
-  function load_last_ts($pair, $flags)
+  function save_ticker($pair, $young_age = 10)
   {
-    $query = "SELECT ts FROM $pair"."_last\n";
-    $query .= "WHERE flags = $flags \n";
-    // $query .= "ORDER BY id DESC\n";
-    $query .= "LIMIT 1;\n";
-    // echo("Executing $query\n");
-    $result = mysql_query($query); 
-    if (!$result) die("Failed <$query> with errors:\n".mysql_error());    
-    return  mysql_fetch_array ( $result )[0];
-  }
+     global $mysqli, $log_file, $ts, $date, $date_dir, $ticker_fields,
+            $last_url, $db_alt_server, $db_user, $db_pass;
 
-  function save_for_pair($pair)
-  {
-     global $ts, $date, $date_dir, $ticker_fields, $pmap_fields;     
-     $path =  "/var/www/ticker/";
+     $log_file = fopen(getcwd()."/logs/save_ticker_$pair.log", "a+");
+     
+
+     log_msg("save_ticker begins for $pair");
+     $path =  getcwd()."/ticker/";
+     
      check_mkdir($path);
      $file_name = $path.$pair."_last.json";
-     log_msg("request ticker data from exchange server");
-     $txt = get_public_data('ticker', $pair, 3, '');
-     // $txt = str_replace(',[', "\n[", $txt);
-     // $txt = str_replace(']],', "]]\n", $txt);
-     // $txt = str_replace('[[,', "[\n[", $txt);
      
-     $id = pair_id($pair);
+     if (!$mysqli)
+         init_db();
+     $mysqli->select_db('ticker_history');
+     
+     make_table_ex('ticker_history.'.$pair, $ticker_fields, 'ts', ", UNIQUE KEY `updated` (`updated`), KEY(`volume`)");
+     
+     $tmp = $mysqli->try_query("SHOW CREATE TABLE $pair");
+     $row = $tmp->fetch_array(MYSQL_NUM);
+     if ($row && strpos($row[1], '`volume` float'))
+     {          
+        log_msg("WRONG SQL:\n" .$row[1]);        
+        $query = "ALTER TABLE `ticker_history`.`$pair` \n";
+        $query .= "CHANGE COLUMN `volume`     `volume` DOUBLE NOT NULL DEFAULT '0', \n"; 
+        $query .= "CHANGE COLUMN `volume_cur` `volume_cur` DOUBLE NOT NULL DEFAULT '0'\n";        
+        $mysqli->try_query($query);        
+     }
+
+          
+     $last_upd = $mysqli->select_value('updated', $pair, "ORDER BY updated DESC");
+     $date = utc_time();
+     if ($last_upd)
+     {
+        $ref = utc_time($last_upd);
+        $age = $date->getTimestamp() - $ref->getTimestamp();
+        if ($age < $young_age)
+        {
+          log_msg(" update not need, due age = $age < $young_age");
+          return false;
+        }   
+     }
+     
+     $txt = get_public_data('ticker', $pair, 3, '');
+     $date = utc_time();                     
+     list($usec, $sec) = explode(" ", microtime());    
+     $ms = sprintf('%.3f', $usec);
+     $ms = str_replace('0.', '.', $ms);
+     $ms = str_replace('1.', '.', $ms);   
+        
 
      file_put_contents($file_name,  $txt);
      $tab = json_decode($txt);
@@ -72,56 +96,120 @@
      if (isset($tab) && isset($tab->$pair) )     
      {
         // && isset($tab->ticker)
+        log_msg("received ticker data from $last_url");
         $d = $tab->$pair;      
-        echo (" save ticker data performing pair_id = $id\n ");
-        // var_dump($tab);
         $date->setTimestamp($d->updated);
-        $upd = $date->format('Y-m-d H:i:s');
         
-        $buy = $d->buy;
+        $upd = $date->format('Y-m-d H:i:s');
+        $ts  = $upd.$ms;
+
+
+        $fields_tm   = 'ts,updated,'; 
+        $fields_std  = 'buy,sell,last,volume,volume_cur';
+        $fields_prec = 'ROUND(buy,5),ROUND(sell,5),ROUND(last,5),ROUND(volume,5),ROUND(volume_cur,5)'; 
+        
+
+        $insert = "INSERT IGNORE INTO $pair ($fields_tm $fields_std) VALUES\n";
+
+        $start = time();
+
+        // проверка, чего можно вставить перед новой котировкой        
+        $remote = new mysqli_ex($db_alt_server, $db_user, $db_pass);
+        if ($remote->connect_error)
+           log_msg("#FAILED: cannot connect to remote DB [$db_alt_server] {$remote->connect_error}");
+        else
+        {
+           $remote->select_db('ticker_history'); 
+           
+           $strict = " (updated < '$upd') ";              
+                                  
+           if ($last_upd)           
+               $strict .= "and (updated > '$last_upd')";
+           
+           log_msg("#DBG: requesting updates from $db_alt_server with strict [$strict] ");
+           $rows = $remote->select_from($fields_tm.$fields_prec, $pair,
+                       "WHERE $strict LIMIT 16000", MYSQLI_STORE_RESULT);
+
+           $lines = array();                        
+           if ($rows)
+           {
+              log_msg("#DBG: received {$rows->num_rows} rows");
+              while ($row = $rows->fetch_array(MYSQL_NUM))
+              {             
+                $row[0] = "'{$row[0]}'";
+                $row[1] = "'{$row[1]}'";                              
+                $lines []= '('.implode($row, ','). ')'; // make lines array
+              }           
+              $rows->close();
+           }  
+               
+           $remote->close();
+           
+           if (count($lines) > 0)
+           {
+              $data = implode($lines, ",\n");
+              $add = $insert.$data;
+              log_msg(" inserting from remote DB:\n$data");              
+              $mysqli->try_query($add); 
+           }
+        }
+        
+        if (time() - $start > 10) return false; // много времени ушло, а значит данные уже устарели
+                     
+        
+        $buy  = $d->buy;
         $sell = $d->sell;
         $last = $d->last;
-        $vol = $d->vol;
+        $vol  = $d->vol;
         $vol_cur = $d->vol_cur;
+        $new = sprintf("%.5f,%.5f,%.5f,%.5f,%.5f", $buy,$sell,$last,$vol,$vol_cur);
         
-        
-        $add = "INSERT INTO data (ts,ticker_id,buy,sell,last,volume,volume_cur,updated)\n";
-        $add .= "VALUES('$ts',$id,$buy,$sell,$last,$vol, $vol_cur,'$upd');";
-        echo ("add_row query: $add \n");
-        mysql_query($add) or  die("Query failed with errors:\n".mysql_error());      
-     }		
+        $last = $mysqli->select_row($fields_prec, $pair, 'ORDER BY ts DESC');
+        if ($last)
+            $last = implode($last, ',');
+        else
+            $last = '?';
+            
+        if ($last != $new)
+        {              
+           $vals = "('$ts','$upd',$new)";        
+           $add = "$insert $vals;";
+           log_msg ("add_row query: [$new], last: [$last] \n");
+           $mysqli->try_query($add);
+        }
+        else
+          log_msg("OPT: last = new = [$last], skip add");              
+     }
+     // fclose($log_file);		
 	}
 
-  $link = mysql_connect('localhost', 'btc-e', 'u8sqz') or die('cannot connect to DB server: '.mysql_error());
-  mysql_select_db("ticker_history") or die('cannot select DB depth_history');
 
-
-  // make_table("data",      $ticker_fields, false);
-  // make_table("pair_map",  $pmap_fields, false);
-
-  save_for_pair('btc_usd');
   $today = date("Y-m-d H:i:s");
 
-  if ($today >= "2017-01-16 01:00:00")
+  $pair = rqs_param('pair', '');
+  if ('' == $pair && isset($argv[1]))
+      $pair = $argv[1]; 
+   
+  if (strlen($pair) >= 7)
   {
-     echo(" today = $today \n");
-     save_for_pair('dsh_btc');
-     save_for_pair('dsh_usd');
-     save_for_pair('eth_btc');
-     save_for_pair('eth_usd');
-
+     init_db("trades_history");
+     save_ticker($pair);  
   }
-
-
-  save_for_pair('nvc_btc');
-  save_for_pair('nvc_usd');
-  save_for_pair('nmc_btc');
-  save_for_pair('nmc_usd');
-  save_for_pair('ppc_btc');
-  save_for_pair('ppc_usd');
-  save_for_pair('ltc_btc');
-  save_for_pair('ltc_usd');
-
+  else
+  if ($pair == 'all')  
+  {
+     init_db("trades_history");
+     
+     $delay = 0;     
+     if (isset($argv[2]))
+         $delay = (0 + $argv[2]);
+          
+     foreach ($save_pairs as $pair)
+     {
+        save_ticker($pair);
+        usleep($delay * 1000);        
+     } // foreach
+  }  
   
-  mysql_close($link);
+  if ($mysqli) $mysqli->close();
 ?>
