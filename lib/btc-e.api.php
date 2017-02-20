@@ -1,32 +1,9 @@
 <?php
 
 $last_url = "?";
+$btce_api = 3;
 
-
-function get_cached_data($server, $data, $pair, $params)
-{
-   global $last_url;
-   $ch = curl_init();  
-   
-   curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-   curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 20);
-   curl_setopt($ch, CURLOPT_TIMEOUT, 45);
-   curl_setopt($ch, CURLOPT_USERAGENT, 'Mozilla/4.0 (compatible; BTCE PHP client; '.php_uname('s').'; PHP/'.phpversion().')');
-
-   $url = "http://$server/get_$data.php?pair=$pair&$params";
-   // echo("url = $url\n");	
-   curl_setopt($ch, CURLOPT_URL, $url);
-   $last_url = $url;
-   $result = curl_exec($ch);
-   if (!$result) {
-   	 printf("curl_exec failed for $url: %s\n", curl_error($ch)); 
-   }   
-   curl_close($ch);
-   return $result;
-}
-
-
-function get_public_data($data, $pair, $api_ver, $params)
+function get_public_data($data, $pair, $api_ver = 3, $params = '')
 {
    global $last_url;
 

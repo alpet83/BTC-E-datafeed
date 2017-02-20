@@ -2,6 +2,7 @@
   date_default_timezone_set("Europe/Moscow");
   $err_log = "logs/error.log";
   
+  $ws_recv      = false; 
   $session_logs = array();
   
   error_reporting(E_ERROR | E_WARNING | E_PARSE | E_NOTICE);

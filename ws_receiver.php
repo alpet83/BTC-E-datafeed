@@ -6,6 +6,7 @@
   include_once('save_trades.php');  
   include_once('upd_depth.php');
     
+  $ws_recv = true;
   
   set_time_limit(1860); // для ограничения возможных утечек памяти, предполагается циклический запуск скрипта (или по расписанию)
   
@@ -60,7 +61,10 @@
   
   echo str_ts_sq().". starting work loop ...\n";
   $start = time();    
-  file_put_contents('command_ws.txt', 'nope');
+  $cmd_file = getcwd().'/command_ws.txt';
+  file_put_contents($cmd_file, 'nope');
+
+  
   
   while ($server->work() >= 0)
   {
@@ -74,17 +78,23 @@
      
      $elps = time() - $start;
      
-     $cmd = file_get_contents('command_ws.txt');
+     $cmd = file_get_contents($cmd_file);
      $cmd = trim($cmd);
+     if (time() % 30 == 27)
+     { 
+        echo str_ts_sq().". last command = [$cmd]\n";
+        sleep(1);
+     }
      
-     if ($elps >= 1800 || strpos($cmd, 'stop'))
+     if (strpos($cmd, 'stop') !== false || $elps >= 1800)
      {
-        echo str_ts_sq().". work loop breaking... ";
+        echo str_ts_sq().". work loop breaking... command = [$cmd] \n";
         break;
      }
           
   }
   
+  file_put_contents($cmd_file, '@exit');
   
   // */
   if ($link) $link->close();

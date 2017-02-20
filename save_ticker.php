@@ -176,6 +176,7 @@
            $add = "$insert $vals;";
            log_msg ("add_row query: [$new], last: [$last] \n");
            $mysqli->try_query($add);
+           on_data_update('save_ticker', $ts);
         }
         else
           log_msg("OPT: last = new = [$last], skip add");              

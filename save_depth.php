@@ -80,7 +80,7 @@
   $depth_fields['volume'] = $double_field;
   $depth_fields['flags'] = 'int(11) NOT NULL';
   
-  $stats_fields = array('id' => 'int(11) unsigned NOT NULL AUTO_INCREMENT');
+  $stats_fields = array();
   $stats_fields['ts'] = 'timestamp NOT NULL';
   $stats_fields['best_ask'] = $float_field;
   $stats_fields['best_bid'] = $float_field;  
@@ -111,34 +111,38 @@
 
   function load_last_ts($pair, $suffix)
   {
-    return select_value('ts', $pair.$suffix, "ORDER BY ts DESC");
+    global $mysqli;
+    return $mysqli->select_value('ts', $pair.$suffix, "ORDER BY ts DESC");
   }
 
   function load_last_depth($pair, $suffix)
   {
-    $result = select_from('price, volume', $pair.$suffix,"ORDER BY price\n"); 
+    global $mysqli;
+    $result = $mysqli->select_from('price, volume', $pair.$suffix,"ORDER BY price\n"); 
     if (!$result) die("Failed load depth ");    
     return $result;
   } 
   
   function saldo_depth_volume($pair, $suffix, $calc_cost)
   {
+    global $mysqli;
     $fields = 'volume';
     if ($calc_cost) 
         $fields = 'volume * price';
         
     $query = "SELECT SUM($fields) FROM $pair$suffix\n";
-    $result = mysql_query($query); 
-    if (!$result) die("Failed <$query> with errors:\n".mysql_error());    
-    return  mysql_fetch_array ( $result )[0];
+    $result = $mysqli->try_query($query); 
+    if (!$result) die('DB query error');    
+    return  $result->fetch_array ()[0];
   }
   
 
   function save_depth_stats($pair, $s, $ts)
   {     
+    global $mysqli;
     $keys = array_keys($s);
     // echo(" price = {$rec[0]}  vol {$rec[1]} \n");
-    $query = "INSERT INTO $pair"."__stats\n";
+    $query = "INSERT IGNORE INTO $pair"."__stats\n";
     $query .= '(ts,'.join($keys, ',').")\n";
     $query .= "VALUES\n";
     $query .= "('$ts'";
@@ -146,7 +150,7 @@
        $query .= ','.$s[$k];
        
     $query .= " )\n";
-    mysql_query($query) or die("Failed <$query> with errors:\n".mysql_error());  
+    $mysqli->try_query($query) or die("DB query failed");  
   }
 
   function fmt_depth_row($rec, $flags)
@@ -158,20 +162,21 @@
 
   function save_depth_row($pair, $table, $rec, $flags)
   {     
+    global $mysqli;
     // single save
     $query = "INSERT INTO $pair$table\n";
     $query .= "(ts,price,volume,flags)\n";
     $query .= "VALUES". fmt_depth_row($rec, $flags);    
-    mysql_query($query) or die("Failed <$query> with errors:\n".mysql_error());    
+    $mysqli->try_query($query) or die("DB query failed");    
   }
   function save_diff_row($pair, $price, $vol, $flags)
   {
-    global $ts; 
+    global $ts, $mysqli; 
     $query = "INSERT INTO $pair"."__diff\n";
     $query .= "(ts,price,volume,flags)\n";
     $query .= "VALUES\n";
     $query .= "('$ts',$price,$vol,$flags)\n";
-    mysql_query($query) or die("Failed <$query> with errors:\n".mysql_error());   	
+    $mysqli->try_query($query) or die("DB query failed");   	
   }
  
   function save_diff($pair, $old_res, $new, $suffix)
@@ -181,7 +186,7 @@
 
      $old = array();
 
-     while ($line = mysql_fetch_array($old_res, MYSQL_NUM))     
+     while ($line = $old_res->fetch_array(MYSQL_NUM))     
              array_push($old, $line);
      
      $flags = 2;
@@ -248,20 +253,22 @@
   } // save_diff
 
   function try_insert($query) // only for depth __ask/__bids tables
-  { 
+  {
+    global $mysqli;
     $query = rtrim($query, ",\n");
     $query .= "\n ON DUPLICATE KEY UPDATE volume=VALUES(volume), ts=VALUES(ts)\n";
     
-    $res = try_query($query);
+    $res = $mysqli->try_query($query);
     
     if ($res) 
-       log_msg(" +added rows = ".mysql_affected_rows());
+       log_msg(" +added rows = ".$mysqli->affected_rows);
     else          
        die("non continuable error!\n");
   }
 
   function cleanup_table($pair, $suffix, $data, $total)
   {
+     global $mysqli;
      if ( count($data->asks) < 2000 && count($data->bids) < 2000)
           $total = true;
   
@@ -269,8 +276,8 @@
      if ($total)
      {    
         $query = "TRUNCATE TABLE $pair$suffix";        
-        $result = try_query($query) or die("#ERROR: request <$query> failed:\n ".mysql_error());
-        log_msg(" $query affected rows: ".mysql_affected_rows());
+        $result = $mysqli->try_query($query) or die("#ERROR: request failed");
+        log_msg(" $query affected rows: ".$mysqli->affected_rows);
      }
      else
      {
@@ -375,70 +382,7 @@
   }
   
   
-  function fix_prices($price, $vol, &$dest)
-  {    
-     if ($vol < 0.1)  $dest[0] = $price; 
-     if ($vol < 1.0)  $dest[1] = $price; 
-     if ($vol < 10)   $dest[2] = $price;
-     if ($vol < 100)  $dest[3] = $price;
-     if ($vol < 1000) $dest[4] = $price;
-     
-     return $dest;   
-  }
-
-
-  function save_spreads($pair, $data)
-  {
-     global $ts, $spreads_fields;
-     $asks = $data->asks;
-     $bids = $data->bids;
-     
-     // $query = sprintf("ALTER TABLE `%s__spreads` CHANGE `id` `id` INT(10) UNSIGNED NOT NULL AUTO_INCREMENT", $pair);
-     // if (strpos($ts, '18:30:')) try_query("TRUNCATE TABLE $pair".'__spreads');
-     make_table($pair."__spreads", $spreads_fields, ", UNIQUE KEY `TIMESTAMP` (`ts`)");
-     
-     $query = "INSERT INTO $pair".'__spreads (';
-     $query .= '`buy_0.1`, buy_1, buy_10, buy_100, buy_1000,';
-     $query .= '`sell_0.1`, sell_1, sell_10, sell_100, sell_1000, ts)';
-     $query .= "\n VALUES(";    
-     
-     
-     $prices = array(0, 0, 0, 0, 0);
-     $lp    = 0;
-     $saldo = 0;
-     foreach ($asks as $a)
-     {
-       $lp = $a[0]; 
-       fix_prices($lp, $saldo, $prices);
-       $saldo += $a[1]; // add volume
-       fix_prices($lp, $saldo, $prices);
-       if ($saldo > 1000) break;
-     }
-
-     $query .= implode(',', $prices);
-
-     // printf(" $pair buy levels: [%s] ", implode(',', $prices)); 
-     
-     $saldo = 0;     
-          
-     
-     foreach ($bids as $b)
-     {        
-     
-       fix_prices($b[0], $saldo, $prices  );
-       $saldo += $b[1]; // add volume
-       fix_prices($b[0], $saldo, $prices);
-       if ($saldo > 1000) break;
-     }
-     
-     $query .= ','.implode(',', $prices);
-     $query .= ",'$ts');\n";
-      
-     try_query($query);
-     //printf(" sell levels: [%s] \n", implode(',', $prices));
-  
-  }
-  
+  include_once('spreads.inc.php');  
   
   function prepare($pair)
   {
@@ -450,7 +394,7 @@
      // try_query("DROP TABLE $pair"."__last");     
      make_table($pair."__asks",    $depth_fields, ", UNIQUE KEY `OPT` (price), KEY `TIMESTAMP` (ts)");
      make_table($pair."__bids",    $depth_fields, ", UNIQUE KEY `OPT` (price), KEY `TIMESTAMP` (ts)");     
-     make_table($pair."__stats",   $stats_fields, false);
+     make_table_ex($pair."__stats",  $stats_fields, 'ts', false);
        
   }
      
@@ -502,7 +446,7 @@
 
   function save_for_pair($data, $force = false)
   {
-     global $ts, $date, $last_ts, $date_dir, $last_url;
+     global $ts, $mysqli, $date, $last_ts, $date_dir, $last_url;
      $pair = $data->pair;
      $ts = $data->ts;    
      
@@ -517,7 +461,7 @@
      
      if ($time_pass)   
      {
-         $full_ts = select_value('ts', $pair.'__full', 'ORDER BY ts DESC');
+         $full_ts = $mysqli->select_value('ts', $pair.'__full', 'ORDER BY ts DESC');
          $dt = new DateTime($full_ts, new DateTimeZone('UTC'));                  
          $full_stm = $dt->format('Y-m-d H:i');
          $curr_stm = $date->format('Y-m-d H:i');          
@@ -541,9 +485,6 @@
      save_diff($pair, $prv_asks, $data->asks, '__asks');
      save_diff($pair, $prv_bids, $data->bids, '__bids');
 
-     mysql_free_result($prv_asks);
-     mysql_free_result($prv_bids);
-
   
      log_msg("cleaning `last` tables for $pair");
   
@@ -554,6 +495,9 @@
      
      save_full_depth($pair, "__asks", $data);
      save_full_depth($pair, "__bids", $data);
+     
+     on_data_update('save_depth', $ts);
+     
      if ($save_full)
      { 
        $fields = 'ts,price,volume,flags';
@@ -563,7 +507,8 @@
        $query = "INSERT INTO $pair"."__full($fields)\n";
        $query .= "SELECT $fields FROM $pair"."__asks\n"; 
        try_query($query);
-       log_msg ("$pair-full snapshot also added! \n"); 
+       log_msg ("$pair-full snapshot also added! \n");
+       on_data_update('save_depth_full', $ts); 
      }          
     
      if ($sec < 10)
@@ -577,17 +522,19 @@
         $stats['best_ask'] = $data->asks[0][0];
         $stats['best_bid'] = $data->bids[0][0];            
         log_msg(" spread: {$stats['best_ask']} .. {$stats['best_bid']}. Saldo volume asks = {$stats['volume_asks']}, bids = {$stats['volume_bids']} \n");
-        log_msg(print_r($stats, true));
+        log_msg(print_r($stats, true));        
         save_depth_stats ($pair, $stats, $data->ts);
      }    
      log_msg("calc & saving spreads");
-     save_spreads($pair, $data);
+     // not need reverse
+     save_spreads($pair, $data->asks, $data->bids);
      try_query('UNLOCK TABLES;');
            
 	}
 
-  $link = mysql_connect('localhost', $db_user, $db_pass) or die('cannot connect to DB server: '.mysql_error());
-  mysql_select_db("depth_history") or die('cannot select DB depth_history');
+  
+  init_db('depth_history');
+    
   // foreach ($save_pairs as $pair) save_for_pair($pair);
   //*
   $start = time();
@@ -639,27 +586,15 @@
     $pair = $data->pair;    
     log_msg("[$pair] elapsed $elps sec saving >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> ");
          
-    // mysql_query("DROP TABLE $pair\x5f_old");
-    // mysql_query("DROP TABLE $pair\x5f_nope");
-    mysql_query("DROP TABLE $pair\x5f_temp");
-         
-    $tmp = try_query("SHOW CREATE TABLE $pair".'__diff');
-    $row = mysql_fetch_array($tmp, MYSQL_NUM);
-    if ($row && false === strpos($row[1], 'timestamp(3)') && $m % 10 == 2 )
-    {
-      $q = "ALTER TABLE `$pair\137_diff` CHANGE `ts` `ts` TIMESTAMP(3) NULL";
-      log_msg($q);
-      try_query($q);
-    }    
-    else
-      log_msg($row[1]); 
+    // $mysqli->try_query("DROP TABLE $pair\x5f_old");
+    // $mysqli->try_query("DROP TABLE $pair\x5f_nope");
     
     $date->modify('now');
     $mn = $m + 1;   
     save_for_pair($data, false);    
   }
   
-  mysql_close($link);
+  $mysqli->close();
   fflush($log_file);
   fclose($log_file);  
 ?>

@@ -6,7 +6,6 @@
   include_once('lib/config.php');
   include_once('lib/db_tools.php');
   $date = utc_time();
-
   set_time_limit(30);
     
   $date_dir = "/var/www/btc-e/trades/".$date->format('Ymd');
@@ -191,13 +190,16 @@
 
   function save_trades($pair, $force)
   {
-     global $log_file, $mysqli, $btce_api, $trades_fields, $date, $last_url, $db_alt_server, $db_user, $db_pass;
+     global $log_file, $ws_recv, $mysqli, $btce_api, $trades_fields, $date, $last_url, $db_alt_server, $db_user, $db_pass;
      $old_id = 0;
      $mysqli->select_db('trades_history');
 
      $dir = "logs/trades";
      check_mkdir($dir);
-     $log_file = fopen("$dir/save_$pair.log", "a+");
+     if ($ws_recv)
+        $log_file = fopen("$dir/ws_save_$pair.log", "a+");
+     else
+        $log_file = fopen("$dir/save_$pair.log", "a+");
      make_table_ex("$pair", $trades_fields, 'trade_id', ", KEY `SCAN` (`id`, `ts`, `order_id`)");
 
      // опредление, какие данные в наличии.
@@ -292,11 +294,12 @@
      }
 
 
-
+     log_msg(" loading trades from btc-e, using public APIv$btce_api");
      $txt = get_public_data('trades', $pair, $btce_api, $params);
      if (trim($txt) == "")
      {
         log_msg(" failed get_public_data for $last_url");
+        fclose($log_file); $log_file = false;
         return false;  
      }
 
@@ -338,6 +341,7 @@
         {
            // echo("trades add: $query \n");
            $mysqli->query($query);
+           on_data_update('save_trades', $ts);
         }
 
      }

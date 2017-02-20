@@ -3,7 +3,7 @@
   $log_file = false;
    
   $cur_dir  = getcwd(); // '/var/www/btc-e';
-  
+                                  
 
   include_once('lib/btc-e.api.php');
   include_once('lib/common.php');
@@ -294,71 +294,12 @@
      $insert_cache = "";
      $insert_asks = array();
      $insert_bids = array();
+    
   
      return $count;
   }
   
-  
-  function fix_prices($price, $vol, &$dest)
-  {    
-     if ($vol < 0.1)  $dest[0] = $price; 
-     if ($vol < 1.0)  $dest[1] = $price; 
-     if ($vol < 10)   $dest[2] = $price;
-     if ($vol < 100)  $dest[3] = $price;
-     if ($vol < 1000) $dest[4] = $price;
-     return $dest;   
-  }
-
-
-  function save_spreads($pair, $asks, $bids)
-  {
-     global $ts, $mysqli, $spreads_fields, $d_updates;
-     
-     // $query = sprintf("ALTER TABLE `%s__spreads` CHANGE `id` `id` INT(10) UNSIGNED NOT NULL AUTO_INCREMENT", $pair);
-     if ($d_updates[$pair] < 5)           
-          make_table($pair."__spreads", $spreads_fields, ", UNIQUE KEY `TIMESTAMP` (`ts`)");
-     
-     $query = "INSERT INTO $pair".'__spreads (';
-     $query .= '`buy_0.1`, buy_1, buy_10, buy_100, buy_1000,';
-     $query .= '`sell_0.1`, sell_1, sell_10, sell_100, sell_1000, ts)';
-     $query .= "\n VALUES(";    
-     
-     
-     $prices = array(0, 0, 0, 0, 0);
-     $lp    = 0;
-     $saldo = 0;
-     foreach ($asks as $a)
-     {
-       $lp = $a[0]; 
-       fix_prices($lp, $saldo, $prices);
-       $saldo += $a[1]; // add volume
-       fix_prices($lp, $saldo, $prices);
-     }
-
-     $query .= implode(',', $prices);
-
-     // printf(" $pair buy levels: [%s] ", implode(',', $prices)); 
-     
-     $saldo = 0;     
-          
-     
-     foreach ($bids as $b)
-     {        
-     
-       fix_prices($b[0], $saldo, $prices  );
-       $saldo += $b[1]; // add volume
-       fix_prices($b[0], $saldo, $prices);
-     }
-     
-     $query .= ','.implode(',', $prices);
-     $query .= ",'$ts');\n";
-      
-     // echo $query;
-     $mysqli->query($query);
-
-     //printf(" sell levels: [%s] \n", implode(',', $prices));
-  
-  }
+  include_once('spreads.inc.php');   
 
   function load_remote_depth($pair)
   {
@@ -434,7 +375,7 @@
      
      if ($d_updates[$pair] < 5)
      {
-        $mysqli->try_query("DELETE TABLE IF EXISTS $pair\137_last;");
+        $mysqli->try_query("DROP TABLE IF EXISTS $pair\137_last;");
      }
      
      $date = utc_time();
@@ -449,7 +390,10 @@
           
      $upd = insert_diff($pair, $data);
      if ($upd >= 0)
+     {
          log_msg("stored $upd rows");
+         on_data_update('depth_diff_upd', $ts);                 
+     }    
      else
          log_msg("update_for_pair: failed load from data:\n ".print_r($data, true)); 
      
@@ -509,7 +453,7 @@
         
         $add_stats = ($sec % 10 == 0);
         
-        $last_ts = $mysqli->select_value('ts', "$pair\137_stats", 'ORDER BY id DESC');
+        $last_ts = $mysqli->select_value('ts', "$pair\137_stats", 'ORDER BY ts DESC');
         if ($last_ts)
         {        
            $last_ts = utc_time($last_ts);
@@ -536,7 +480,7 @@
           while ($row = $last_bids->fetch_array(MYSQL_NUM))          
                  $bids []= $row;
           
-          // $bids = array_reverse($bids);
+          
               
           $stats['cost_asks']   = saldo_depth_volume($pair, '__asks', true);
           $stats['cost_bids']   = saldo_depth_volume($pair, '__bids', true);
@@ -563,11 +507,18 @@
           {
               log_msg("invalid stats: ". print_r($stats, true));
               log_msg("#WARN: save_depth_stats not performed ");
+
+
+
+
+
               $first_bid = $bids[0][0];
               $last_bid  = $bids[count($bids) - 1][0];
               log_msg(" first_bid: $first_bid, last_bid: $last_bid"); 
               
-          }          
+          }
+          
+          $bids = array_reverse($bids);          
           save_spreads($pair, $asks, $bids);          
           // cleanup
         }                
@@ -627,7 +578,8 @@
      $elps = diff_time_ms($start, $end);     
 
      fprintf($fh, " stats updates by pair:\n %s \n", print_r($d_updates, true));
-     fprintf($fh, str_ts_sq()." elps = %.3f ms (%f -> %f) ---------------------------------------------------------------------------------- \n", $elps, $end[1], $start[1]);
+     fprintf($fh, str_ts_sq()." elps = %.3f ms (%f -> %f) ----------------------------------------------------------------------- \n", 
+                          $elps, $end[1], $start[1]);
      fclose($fh);  
   }
 

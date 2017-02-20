@@ -1,5 +1,6 @@
 <?php
   include_once('lib/common.php');
+  include_once('lib/db_tools.php');
   
   define ('axis_step_x', 200);
   define ('axis_step_y', 50);
@@ -7,25 +8,57 @@
   $pair = rqs_param('pair', 'btc_usd');
   $limit = rqs_param('limit', 300);
   
-  $link = mysql_connect('localhost', 'db_reader', 'dbr371x') or die('cannot connect to DB server: '.mysql_error()); // global for all actions
-  
+  $mysqli = new mysqli_ex('localhost', 'db_reader', 'dbr371x');
+
+  if ($mysqli->connect_error)
+      die('cannot connect to DB server: '.$mysqli->connect_error); // global for all actions
+
+
+  $mysqli->select_db("depth_history"); // or die('cannot select DB depth_history');
+
+  $cl_top    = 20;
+  $cl_center = 400;
+  $min_price = 0;
+  $p_ystep   = 1;
+
   $colors = array();
     
-  
+  function get_spreads_data($pair, $limit)
+  {
+     global $mysqli;     
+     $strict = "ORDER BY ts DESC\n"; // данные нужны с конца!
+     $strict .= "LIMIT $limit\n";
+     return $mysqli->select_from('*', $pair.'__spreads', $strict);
+  }
+
   function get_depth_stats($pair)
   {
-     global $link, $limit;
-     
-     mysql_select_db("depth_history") or die('cannot select DB depth_history');
-
-     $query = "SELECT * FROM $pair"."__stats\n";
-     $query .= "ORDER BY id DESC\n";
-     $query .= "LIMIT $limit\n";
-     
-     $res = mysql_query($query) or die("Failed <$query> with errors:\n".mysql_error());
+     global $mysqli, $limit;     
+     $strict = "ORDER BY ts DESC\n";
+     $strict .= "LIMIT $limit\n";     
+     $res = $mysqli->select_from('*', $pair.'__stats', $strict) or die("non-continuable error");
      return $res;  
   }
- 
+
+  function calc_y($price)
+  {
+    global $cl_top, $cl_center, $min_price, $p_ystep;
+    
+    if (!$price)
+         $price = 0;
+    
+    $pt = $cl_center - ( $price - $min_price ) * $p_ystep;
+    
+    if ($pt <= $cl_top) 
+        return $cl_top + 1; 
+    
+    if ($pt >= $cl_center)        
+        return $cl_center - 1;
+        
+        
+    return $pt;          
+  }
+
   function calc_time_points ($step, $ts_min, $ts_max)
   {    
     define('sec_per_day',  3600 * 24);
@@ -138,16 +171,35 @@
                               
   function draw_pair($pair)
   {
-     global $colors;
+     global $colors, $mysqli, $limit, $cl_top, $cl_center, $min_price, $p_ystep;
+
+     $draw = rqs_param('draw', 'stats');
+
+     $dsp = ($draw == 'spreads');
      
-     $res = get_depth_stats($pair, 300);
+     $spd = get_spreads_data($pair, $limit * 2);
+
+     $sp_data = array();
      
+     if ($dsp)
+     while ($row = $spd->fetch_array(MYSQL_ASSOC))
+     {
+        $ts = $row['ts'];
+        unset($row['ts']);
+        $sp_data[$ts] = $row;
+     }
+
+     $res = get_depth_stats($pair);
+
+
+
      $width = rqs_param('w', 1920); 
      $height = rqs_param('h', 1080); 
      $im = imagecreate($width, $height);
      if (!isset($im)) return;
       
      init_colors ($im); 
+     
      
      $aqua       = $colors['aqua'];
      $orange     = $colors['orange'];
@@ -159,11 +211,23 @@
      $yellow     = $colors['yellow'];
      $gray       = $colors['gray'];
      
+     $green_1     = imagecolorallocate($im, 0, 190, 0);
+     $green_2     = imagecolorallocate($im, 0, 128, 0);
+     $green_3     = imagecolorallocate($im, 0, 96, 0);
+     $green_4     = imagecolorallocate($im, 0, 96, 0);
+
+     $red_1       = imagecolorallocate($im, 190, 0, 0);
+     $red_2       = imagecolorallocate($im, 128, 0, 0);
+     $red_3       = imagecolorallocate($im,  96, 0, 0);
+     $red_4       = imagecolorallocate($im,  64, 0, 0);
+
+     
+     // print_r($colors);
+     // die("test");
      
      // $px     = (imagesx($im) - 7.5 * strlen($string)) / 2;
      // imagestring($im, 3, $px, 9, $string, $orange);
-      	
-          
+
      // collecting info to array, calc extremums.
       
      $data = array ();
@@ -176,8 +240,10 @@
      $max_vol = 0; 
                      
      $l = array();                     
-                     
-     while ($l = mysql_fetch_array($res, MYSQL_ASSOC))
+
+
+     // loading stats data
+     while ($l = $res->fetch_array(MYSQL_ASSOC))
      {
         $ts = $l['ts'];
         $ba = $l['best_ask'];
@@ -202,6 +268,10 @@
         
         
         $points = array ($ts, $ba, $bb, $va, $vb, $cb);
+                
+        if ($dsp && isset ($sp_data[$ts]))
+            $points []= $sp_data[$ts];
+
         array_push($data, $points);        
      }
      if (0 == count($data))
@@ -273,13 +343,10 @@
      $dn_rect = new RECT($cl_left, $cl_center, $cl_right, $cl_bottom);   
      
      $colors['label'] = $white; 
-     draw_vert_axis($im, $up_rect, $min_price, $max_price, true);
-     draw_vert_axis($im, $dn_rect, $min_vol,   $max_vol,   true);
      
      $dn_rect->right = $dn_rect->left;
      
      $colors['label'] = $purple;     
-     draw_vert_axis($im, $dn_rect, $min_cost,  $max_cost,  false);
      
      
      
@@ -342,6 +409,8 @@
            imageline($im, $rx, $cl_top,    $rx, $cl_bottom - 1, $gray);
            imageline($im, $rx, $cl_bottom, $rx, $cl_bottom + 5, $white);           
        } //*/       
+              
+      
      
        $yap = $cl_center - ( $d[1] - $min_price ) * $p_ystep;
        $ybp = $cl_center - ( $d[2] - $min_price ) * $p_ystep;       
@@ -350,12 +419,56 @@
        $yvb = $cl_bottom - ( $d[4] - $min_vol ) * $v_ystep;                 // volume bids line
               
        $ycb = $cl_bottom - ( $d[5] - $min_cost ) * $c_ystep;                // cost bids line
+     
        
      
        if ($px > 0)
        {
-         imageline ($im, $px, $last_yap, $rx, $yap, $red);    // asks line
-         imageline ($im, $px, $last_ybp, $rx, $ybp, $lime);   // bids line
+       
+         if ($dsp && isset($d[6]))
+         {
+            $spd = $d[6];
+            // $ap = $cl_center - ( $spd['sell_0.1'] - $min_price ) * $p_ystep;            
+            $s1p = calc_y ( $spd['sell_1']  );
+            $s2p = calc_y ( $spd['sell_10'] );
+            $s3p = calc_y ( $spd['sell_100'] );
+            $s4p = calc_y ( $spd['sell_1000'] );           
+            
+            
+            // imageline ($im, $px, $ap, $px, $bp, $lime);   // v-line near bids
+            imageline ($im, $px, $s1p, $px, $s4p, $green_1);
+            imageline ($im, $px, $s2p, $px, $s4p, $green_2);
+            imageline ($im, $px, $s3p, $px, $s4p, $green_3);
+            
+            $v   = $spd['sell_10k'];
+            $s5p = calc_y ( $v );
+            if ($v > 0)          
+                imageline ($im, $px, $s4p, $px, $s5p, $green_4);
+
+            $b1p = calc_y ( $spd['buy_1']  );
+            $b2p = calc_y ( $spd['buy_10'] );
+            $b3p = calc_y ( $spd['buy_100'] );
+            $b4p = calc_y ( $spd['buy_1000'] );
+            
+            // imageline ($im, $px, $ap, $px, $bp, $lime);   // v-line near bids
+            imageline ($im, $px, $b1p, $px, $b2p, $red_1);
+            imageline ($im, $px, $b2p, $px, $b3p, $red_2);
+            
+            if ($b4p < $b3p)
+                imageline ($im, $px, $b3p, $px, $b4p, $red_3);
+            
+            
+            $v = $spd['buy_10k'];
+            $b5p = calc_y ( $v );
+            if ($v > 0 && $b5p < $b4p) 
+                imageline ($im, $px, $b4p, $px, $b5p, $red_4);            
+         }
+         // elseif(!$dsp)
+         {
+           imageline ($im, $px, $last_yap, $rx, $yap, $red);    // asks line
+           imageline ($im, $px, $last_ybp, $rx, $ybp, $lime);   // bids line
+         }
+         
 
          imageline ($im, $px, $last_yva, $rx, $yva, $orange); // asks volume
          imageline ($im, $px, $last_yvb, $rx, $yvb, $aqua);   // bids volume
@@ -384,6 +497,13 @@
      }     
      
      
+     
+     draw_vert_axis($im, $up_rect, $min_price, $max_price, true);
+          
+     draw_vert_axis($im, $dn_rect, $min_cost,  $max_cost,  false);     
+     $dn_rect->right = $up_rect->right;   
+     // $dn_rect->left  = $up_rect->right;    
+     draw_vert_axis($im, $dn_rect, $min_vol,   $max_vol,   true);
      header("Content-type: image/png");
      imagepng($im);   
      imagedestroy($im);              
@@ -392,9 +512,10 @@
   
   function dump_pair($pair)
   {     
+     global $mysqli;
      echo "timestamp,ask,bid,asks_vol,bids_vol\n";
      $res = get_depth_stats($pair, 300);     
-     while ($l = mysql_fetch_array($res, MYSQL_ASSOC))    
+     while ($l = $mysqli->fetch_array($res, MYSQL_ASSOC))
         echo ("{$l['ts']},{$l['best_ask']},{$l['best_bid']},{$l['volume_asks']},{$l['volume_bids']}\n");    
   }
     
@@ -411,5 +532,5 @@
   }
   
   
-  mysql_close($link);
+  $mysqli->close();
 ?>

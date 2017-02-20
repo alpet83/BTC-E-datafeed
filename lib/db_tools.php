@@ -120,7 +120,7 @@
      try_query($query);
   }
 
-  function make_table_ex ($table, $fields, $pk, $params)
+  function make_table_ex ($table, $fields, $pk, $params = '')
   {
      $query = "CREATE TABLE IF NOT EXISTS $table (\n";
      $keys = array_keys($fields);
@@ -190,6 +190,21 @@
 
     if ( count($row) > 0 ) $id = $row [0];    
     return $id;
+  }
+
+  function on_data_update($dtype, $ts)
+  {
+     global $mysqli;
+        
+     
+     
+     $query = "INSERT INTO datafeed.last_sync (data_type, ts)\n";
+     $query .= " VALUES ('$dtype', '$ts')\n";
+     $query .= " ON DUPLICATE KEY UPDATE\n ts=VALUES(ts)";
+     if (!$mysqli)    
+         log_msg("#WARN: mysqli object == null");
+     
+     try_query($query);
   }
 
 ?>
