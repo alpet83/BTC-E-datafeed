@@ -6,7 +6,7 @@
   $session_logs = array();
   
   error_reporting(E_ERROR | E_WARNING | E_PARSE | E_NOTICE);
-
+  
   function utc_time($ts = 'now')
   {
      return new DateTime ($ts, new DateTimeZone('UTC'));
@@ -44,17 +44,16 @@
   
   function log_msg($msg, $suffix = "\n")
   {
-    global $log_file;
-    
+    global $log_file;    
     $line = str_ts_sq().". $msg$suffix"; 
    
     if ($log_file)    
         fputs($log_file, $line);
     else
-        echo ( $line );
-    
-    // ob_flush ();
-    flush ();
+    {
+        echo ( $line );    
+        flush ();
+    }
   }
 
   function log_error($msg, $suffix = "\n")

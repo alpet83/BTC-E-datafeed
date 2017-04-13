@@ -197,8 +197,9 @@
         }
         
         $set = array(false, 'text', 'binary', false, false, false, false, false, 'close', 'ping', 'pong');
-
-        $decodedData['type'] = $set[$opcode];
+        
+        if ( isset($set[$opcode]) )
+            $decodedData['type'] = $set[$opcode];
         if (!$decodedData['type'])
                 return array('type' => '', 'payload' => '', 'error' => 'unknown opcode (1003)');
         

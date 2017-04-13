@@ -4,6 +4,7 @@
   include_once('lib/config.php');
   include_once('lib/db_tools.php');
   error_reporting(E_ERROR | E_WARNING | E_PARSE | E_NOTICE);
+  ob_implicit_flush();
   
   // return false;
 
@@ -200,6 +201,7 @@
   if ($pair == 'all')  
   {
      init_db("trades_history");
+     echo "[$today]. #DBG: saving all...\n";
      
      $delay = 0;     
      if (isset($argv[2]))

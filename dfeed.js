@@ -1,20 +1,18 @@
-// require('Pusher');
-// var jq = require("jquery");
-// var jj = require("jquery-json");
-
-// require("node-import");
+console.log("Initializing...");
 
 var WebSocketClient = require("websocket").client;
 
 var lib = require("./js/alpet_lib");   
+var con = require('manakin').global;
+con.log.bright = true;
 
 strTimeSQ   = lib.strTimeSQ;
 fullTimeStr = lib.fullTimeStr
 
 console.log(strTimeSQ() + ". NodeJS datafeed v0.1");
 
-var srv_local  = 'localhost';
-var srv_remote = '10.10.10.50';
+var srv_local  = '127.0.0.1';
+var srv_remote = '10.110.10.10';
 
 var con_list = [];
 var con_errs = 0;
@@ -24,6 +22,7 @@ var depth_data = [];
 // for filtration only (!)
 var depth_asks = [];
 var depth_bids = [];
+var summary_rows = 0;
 
 var client = false;
 var last_connect = false;
@@ -43,7 +42,7 @@ function connect_ws(server, port)
    
    if (con_busy)
    {
-      console.log(strTimeSQ() + ". #WARN: postponed connect to " + url);
+      console.warn(strTimeSQ() + ". #WARN: postponed connect to " + url);
       setTimeout ( function() { connect_ws(server, port); }, 1000 ); // reconnect need
       return false;      
    } 
@@ -52,11 +51,11 @@ function connect_ws(server, port)
    
    client.on('connectFailed', function(error) {
               if (con_errs < 10)              
-                  console.log(strTimeSQ() + '. #ERROR: connect to [' + url + '] failed ' + error.toString());                  
+                  console.error(strTimeSQ() + '. #ERROR: connect to [' + url + '] failed ' + error.toString());                  
               else
                   process.exit(59);
                      
-              setTimeout ( function() { connect_ws(server, port); }, 10000 ); // reconnect need
+              setTimeout ( function() { connect_ws(server, port); }, 1500 ); // reconnect need
               con_busy = false;
               con_errs ++;    
             });   
@@ -66,17 +65,17 @@ function connect_ws(server, port)
                con_errs = 0;
                con_busy = false;
                
-               console.log(strTimeSQ() + ". #SUCCESS: connected with " + server + ", object:\n " +  lib.dumpObject(connection, true));
+               console.info(strTimeSQ() + ". #SUCCESS: connected with " + server + ", object:\n " +  lib.dumpObject(connection, true));
                
                con_list[server] = connection;
                connection.on('error',
                       function(error) {
-                          console.log(strTimeSQ() + ". #ERROR: connection with [" + server + "] failed " + error.toString());                      
+                          console.warn(strTimeSQ() + ". #ERROR: connection with [" + server + "] failed " + error.toString());                      
                             });  // ob error 
                 
                connection.on('close',
                       function() {  
-                          console.log(strTimeSQ() + ". #WARN: disconnected with " + url);
+                          console.warn(strTimeSQ() + ". #WARN: disconnected with " + url);
                           con_list[server] = false; 
                           client.connect(url);
                             }); // on close
@@ -104,13 +103,13 @@ function in_filter(pair, data, filter)
    for (var n = 0; n < data.length; n++)
    { 
        var txt = data[n].join();    
-       if (pair == 'nvc_usd')
-           console.log(strTimeSQ() + '. #DBG: ' + txt + ' in: ' + filter.join(';'));
+       // if (pair == 'nvc_usd') console.log(strTimeSQ() + '. #DBG: ' + txt + ' in: ' + filter.join(';'));
           
        for (var i = 0; i < filter.length; i++)
        if (txt == filter[i])
        {
-          console.log(strTimeSQ() + '. #WARN: replay/duplicate depth row [' + pair + '] ignored ' + txt);
+          if (pair == 'nvc_usd')
+              console.warn(strTimeSQ() + '. #WARN: replay/duplicate depth row [' + pair + '] ignored ' + txt);
           return true;
        }
    }
@@ -138,7 +137,8 @@ function onDepth(pair, data)
         depth_asks[pair].push(txt);
                      
         a[2] = ts; 
-        rec.ask.push (a);       
+        rec.ask.push (a);
+        summary_rows ++;       
      }
      
    if (data.bid)       
@@ -148,7 +148,8 @@ function onDepth(pair, data)
         var txt = b.join(); // JSON.stringify (b);                
         depth_bids[pair].push(txt);     
         b[2] = ts; 
-        rec.bid.push (b);       
+        rec.bid.push (b);
+        summary_rows ++;       
      }
      
    while (depth_asks[pair].length > 32)
@@ -176,11 +177,12 @@ function onTrade(pair, data)
        ws.send ('trade=' + txt);
     }
     else
-       console.log(strTimeSQ() + ". #WARN:  server not connected " + server + "\n" + lib.dumpObject(ws, true)); 
+       console.warn(strTimeSQ() + ". #WARN:  server not connected " + server + "\n" + lib.dumpObject(ws, true)); 
   }
 }
 
-connect_ws(srv_local, 8000);
+
+
 // connect_ws(srv_remote, 8000);
 
 function depthDataSubmit()
@@ -188,7 +190,8 @@ function depthDataSubmit()
    var date = new Date();
    var sec = date.getSeconds();
    var sel = (sec % 10);   
-   if (sec % 5 != 0) return;   
+   
+   if (sec % 5 != 0 && summary_rows < 100) return;   
    
    var data = new Object(); // complex update
    var pairs = 0;
@@ -214,14 +217,14 @@ function depthDataSubmit()
      var ws = con_list[server];
      if (ws && ws.connected)
      {
-        console.log(strTimeSQ() + ". #DEPTH: sending data to server [" + server + "] size: " + txt.length);
+        console.log(strTimeSQ() + ". #DEPTH: sending data to server [" + server + "] size: " + txt.length + ", rows: " + summary_rows);
         // console.log("\t\t\t  " + txt);  
         ws.send('depth=' + txt);
         sended++;
         if (sec == 0) ws.ping();                
      }      
      else
-       console.log(strTimeSQ() + ". #WARN: server not connected " + server);
+       console.warn(strTimeSQ() + ". #WARN: server not connected " + server);
    }
    
    if (sended > 0)
@@ -229,7 +232,8 @@ function depthDataSubmit()
    {
       var rec = depth_data[pair];            
       rec.ask = [];
-      rec.bid = [];    
+      rec.bid = [];
+      summary_rows = 0;  
    }  
    
 }
@@ -240,7 +244,7 @@ setInterval(depthDataSubmit, 1000);
 // подключение к бирже, подписка на данные
 var Pusher = require('pusher-client');
 var btce_key = 'c354d4d129ee0faa5c92';       
-var client = new Pusher(btce_key);
+var client = new Pusher(btce_key); 
 
 function subcribe(pair)
 {
@@ -263,18 +267,29 @@ function subcribe(pair)
 
 }
 
-var pairs = ['btc_usd', 'btc_rur', 
-             'dsh_btc', 'dsh_usd', 
-             'eth_btc', 'eth_usd', 'eth_rur', 
-             'ltc_btc', 'ltc_usd', 
-             'nmc_btc', 'nmc_usd', 
-             'nvc_btc', 'nvc_usd', 
-             'ppc_btc', 'ppc_usd', 
-             'usd_rur'];
-     
-for (var i = 0; i < pairs.length; i++)
-     subcribe(pairs[i]);
-     
 
+connect_ws(srv_local, 8000);
+
+function subscribeAll()
+{
+
+  var pairs = ['btc_usd', 'btc_rur', 
+               'dsh_btc', 'dsh_usd', 
+               'eth_btc', 'eth_usd', 'eth_rur', 
+               'ltc_btc', 'ltc_usd', 
+               'nmc_btc', 'nmc_usd', 
+               'nvc_btc', 'nvc_usd', 
+               'ppc_btc', 'ppc_usd', 
+               'usd_rur'];
+
+
+      
+   for (var i = 0; i < pairs.length; i++)
+        subcribe(pairs[i]);
+   console.log("servers: " + lib.dumpObject(servers[srv_local], true));
+}
+
+
+setTimeout(subscribeAll, 3000);     
 
 // */

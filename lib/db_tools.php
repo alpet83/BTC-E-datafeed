@@ -1,11 +1,14 @@
 <?php
+
   include_once('common.php');
+
   $table_params = "";
+  $color_errors = true;
   $ustr = '_';
 
   // ", KEY `TIMESTAMP` (`ts`)"
   $link   = false;
-  $mysqli = false;
+  $mysqli = false;  
   $double_field = "double NOT NULL DEFAULT '0'";
   $float_field  = "float NOT NULL DEFAULT '0'";
     
@@ -16,12 +19,21 @@
   
      function try_query($query, $rmode = MYSQLI_STORE_RESULT)
      {
+        global $color_errors;
         $result = $this->query($query);
+        $ct_open = '';
+        $ct_close = '';
+        if ($color_errors)
+        {
+          $ct_open = '<font color=red><b>';
+          $ct_close = '</b></font>';        
+        }
+        
         if (!$result)
         {            
-          $err = $this->error;
-          log_msg("#FAILED [$query] with error:\n\t$err\n");
-         print_traceback();           
+          $err = $this->error;        
+          log_msg("$ct_open#FAILED$ct_close [$query] with error:\n\t$err\n");
+          print_traceback();           
         }
         return $result;
      } // try_query  
@@ -65,10 +77,14 @@
       $link = new mysqli_ex('localhost', $db_user, $db_pass); 
       $mysqli = $link;
       
-      if ($link->connect_error) 
-          die('cannot connect to DB server: '.$link->connect_error);  
-          
-      if ($db_name) $link->select_db($db_name); // or die('cannot select DB depth_history');
+      if ($link->connect_error)
+      { 
+          echo('cannot connect to DB server: '.$link->connect_error);
+          $link = false;
+          $mysqli = false;
+      }  
+      else    
+          if ($db_name) $link->select_db($db_name); // or die('cannot select DB depth_history');
     }
     else
     {
@@ -82,6 +98,16 @@
   function table_exists($table)
   {
     return (mysql_num_rows(mysql_query("SHOW TABLES LIKE '$table'")) == 1);
+  }
+
+
+  function mysql_err()
+  {
+     global $mysqli;
+     if ($mysqli)
+         return $mysqli->error;
+     else
+         return mysql_error();
   }
 
   function try_query($query, $link = null) // obsolete procedural variant(!)
@@ -101,11 +127,7 @@
        
      if (!$result)
      {            
-       $err = '?';
-       if ($mysqli)
-           $err = $mysqli->error;
-       else
-           $err = mysql_error();
+       $err = mysql_err();       
        log_msg("#FAILED [$query] with error:\n\t$err\n");
        print_traceback();
        
@@ -139,8 +161,9 @@
      $query .= "COLLATE = utf8_unicode_ci\n";
 
 
-     // $query .= "DATA DIRECTORY = '/var/tmp/mysql'\n";
-     return try_query($query) or die("make_table failed [\n".$query.'] with errors:\n '.mysql_error());
+     // $query .= "DATA DIRECTORY = '/var/tmp/mysql'\n";     
+     return try_query($query) or 
+            die("make_table failed [\n".$query.'] with errors:\n '.mysql_err());
   }
 
   function make_table ($table, $fields, $params)
@@ -206,5 +229,4 @@
      
      try_query($query);
   }
-
 ?>

@@ -1,14 +1,23 @@
 <?php
   header("Access-Control-Allow-Origin:*");
-  
+    
   include_once('lib/btc-e.api.php');
-  include_once('lib/common.php');                                                                 
+  echo "script init 1\n";
   include_once('lib/config.php');
+  echo "script init 2\n";
   include_once('lib/db_tools.php');
+  echo "script init 3\n";                                                                 
+  include_once('lib/common.php');
+  echo "script init 4\n";
+  
+  
+  ob_implicit_flush();
+  
   $date = utc_time();
+  $debug = true;
   set_time_limit(30);
     
-  $date_dir = "/var/www/btc-e/trades/".$date->format('Ymd');
+  $date_dir = "/var/www/html/trades/".$date->format('Ymd');
   $ts = $date->format('Y-m-d H:i:s');
 
   $trades_fields = array('id' => 'int(11) unsigned NOT NULL AUTO_INCREMENT');
@@ -190,9 +199,11 @@
 
   function save_trades($pair, $force)
   {
-     global $log_file, $ws_recv, $mysqli, $btce_api, $trades_fields, $date, $last_url, $db_alt_server, $db_user, $db_pass;
+     global $log_file, $ws_recv, $mysqli, $btce_api, $trades_fields, $date, $last_url, $db_alt_server, $db_user, $db_pass, $debug;
      $old_id = 0;
      $mysqli->select_db('trades_history');
+     if ($debug)
+         echo " save_trades for pair [$pair] \n";
 
      $dir = "logs/trades";
      check_mkdir($dir);
@@ -269,32 +280,45 @@
           
      if (strlen($last_ts) > 10)
      {     
-        $ref_dt = new DateTime($last_ts);             
+        $ref_dt = utc_time($last_ts);             
         $diff = date_diff($date, $ref_dt);        
-        $upd_age = $diff->s;
+        $upd_age = $diff->s + ($diff->h * 60 + $diff->i) * 60;
+        log_msg("#OPT: last_ts [$last_ts] "); // .print_r($diff, true)
         log_msg("#OPT($pair): local data age $upd_age seconds \n"); 
      }
      
      $params = '';
      $lazy = strpos($pair, "dsh_") || strpos($pair, "nvc_") || strpos($pair, "ppc_") || strpos($pair, "nmc_");
      
-     
+          
+     echo "old_id = $old_id \n";     
+          
      if ($old_id == 0 || $upd_age > 100)
-         $params = '?limit=2000';
+       {     
+         $params = 'limit=500';
+         if ($upd_age > 300) $params = 'limit=1000';
+         if ($upd_age > 600) $params = 'limit=2000';      
+         if ($upd_age > 900) $params = 'limit=5000';
+       }          
      else
-      if ( $force && $lazy )
-         $params = '?limit=10'; // обычно мало сделок бывает.             
+     {   // обычно мало сделок бывает, при частых запросах
+         if ($upd_age < 60)
+            $params = 'limit=50'; 
          
+         if ( $force && $lazy || $upd_age < 10)
+            $params = 'limit=10';            
+     }    
 
      if (!$force && $upd_age < 90 && $old_id > 0)
      {
-        log_msg("#OPT($pair): request to exchange not need, due data have actual state");
+        log_msg("#OPT($pair): request to exchange not need, due data have actual state ");
         fclose($log_file); $log_file = false;
         return true;    
      }
 
 
      log_msg(" loading trades from btc-e, using public APIv$btce_api");
+     echo ("[$pair]. #DBG: upd_age = $upd_age, after '$last_ts'. Using params [$params]\n");     
      $txt = get_public_data('trades', $pair, $btce_api, $params);
      if (trim($txt) == "")
      {
@@ -315,6 +339,7 @@
      if (isset($tab) && isset($tab->$pair) )  // typical ->btc_usd
      {
         $trades = array_reverse($tab->$pair);
+        log_msg(" loaded lines from [$last_url]: ".count($trades));
 
         $count = 0;
         $query = "INSERT INTO $pair (ts, price, trade_id, flags, volume)\n VALUES\n";
@@ -350,10 +375,11 @@
   } // save_trades
 
 
-
   $pair = rqs_param('pair', '');
   if ('' == $pair && isset($argv[1]))
       $pair = $argv[1]; 
+
+  echo "[$ts]. save_trades.php pair = [$pair] \n";
    
   if (strlen($pair) >= 7)
   {
@@ -373,4 +399,5 @@
   }  
 
   if ($mysqli) $mysqli->close();
+  echo " script complete for pair [$pair] \n";
 ?>

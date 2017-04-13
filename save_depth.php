@@ -3,6 +3,7 @@
   include_once('lib/common.php');
   include_once('lib/config.php');
   include_once('lib/db_tools.php');
+  ob_implicit_flush();
 
   set_time_limit(150);
   error_reporting(E_ERROR | E_WARNING | E_PARSE | E_NOTICE);
@@ -97,11 +98,13 @@
     'buy_10'   => $float_field,
     'buy_100'  => $float_field,
     'buy_1000' => $float_field,
+    'buy_10k'  => $float_field,
     'sell_0.1' => $float_field,
     'sell_1'   => $float_field,
     'sell_10'  => $float_field,
     'sell_100'  => $float_field,
     'sell_1000' => $float_field,
+    'sell_10k'  => $float_field,
     'ts' => 'timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP'); // ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci;
 
   $commits = 0; // сколько добавленно в таблицу дифф
@@ -406,7 +409,8 @@
      $file_name = $path.$pair."_last.json";    
      
      log_msg("request $pair depth data from exchange server via APIv$api");
-     $txt = get_public_data('depth', $pair, $api, 'limit=2000');
+     
+     $txt = get_public_data('depth', $pair, $api, 'limit=10000');
      log_msg("from $last_url received data size: ".strlen($txt));
      file_put_contents($file_name,  $txt);     
      $tab = json_decode($txt);
@@ -486,8 +490,7 @@
      save_diff($pair, $prv_bids, $data->bids, '__bids');
 
   
-     log_msg("cleaning `last` tables for $pair");
-  
+     // log_msg("cleaning `last` tables for $pair"); 
           
      $sec = $date->format('s') * 1;
  
