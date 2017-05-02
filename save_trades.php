@@ -182,6 +182,7 @@
         log_msg ("parsed [$count] ticks, generated [$cnt] new bar(s) \n");
         $query = "INSERT INTO $table($columns)\nVALUES\n";
         $query .= implode($bars, ",\n");        
+	$query .= " ON DUPLICATE KEY UPDATE close=VALUES(close), volume=VALUES(volume)\n";
         // echo "$query\n\n";
         if(!$mysqli->try_query($query))
          {
