@@ -14,12 +14,11 @@
   function crop_query($query, $limit = 70)
   {
     $lines = explode("\n", $query);
-    if (count($lines) <= $limit) return $query;
-    
+    if (count($lines) <= $limit) return $query;    
     $rmv = count($lines) - $limit - 10;
     if ($rmv <= 0) return $query;
     
-    $ins = array( "... [$rmv lines] ..." );    
+    $ins = array("... [$rmv lines] ...");    
     array_splice($lines, 10, $rmv, $ins); // remove internal lines
     
     return implode($lines, "\n");
@@ -267,5 +266,40 @@
      
      try_query($query);
   }
+  
+  function batch_query($qstart, $qend, $data, $limit = 5000) // big-insert optimizer
+  {  
+     $cnt = count ($data);
+     if ($cnt > $limit)
+         log_msg("batch query processing [$qstart ... $qend] for $cnt lines "); 
+     
+     while ($cnt > 0)
+     { 
+       $query = $qstart;
+       
+       $slice = array();
+       $cnt = count($data);                             
+                              
+       if ($cnt <= $limit)
+       {
+           $slice = $data;           
+           $cnt = 0;
+       }    
+       else   
+       {
+          $slice = array_splice($data, 0, $limit);
+          log_msg("batch_query processing $limit, rest $cnt ");
+       }                                            
+       
+       $query .= implode($slice, ",\n");
+       $query .= $qend;
+       
+       // log_msg("$query");
+       try_query($query);
+     }  
+  
+  } // batch_query
+  
+    
 
 ?>

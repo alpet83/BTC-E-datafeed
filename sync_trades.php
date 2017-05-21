@@ -175,7 +175,7 @@
             try_query("TRUNCATE TABLE $table"); // clearing bars
              // recreate table
             $fields = 'trade_id,order_id,ts,price,flags,volume';
-            $table_new = "`$pair.new`";
+            $table_new = "`$pair~new`";
             log_msg("creating temporary table $table_new");
             
             make_table_ex($table_new, $trades_fields, 'trade_id', ", KEY `SCAN` (`id`, `ts`, `order_id`)");
