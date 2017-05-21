@@ -1,5 +1,4 @@
-console.log("Initializing...");
-
+console.log("=============== Initializing script...==============");
 var WebSocketClient = require("websocket").client;
 
 var lib = require("./js/alpet_lib");   
@@ -11,8 +10,8 @@ fullTimeStr = lib.fullTimeStr
 
 console.log(strTimeSQ() + ". NodeJS datafeed v0.1");
 
-var srv_local  = '127.0.0.1';
-var srv_remote = '10.110.10.10';
+var srv_local  = 'localhost';
+var srv_remote = '10.10.10.50';
 
 var con_list = [];
 var con_errs = 0;
@@ -70,7 +69,7 @@ function connect_ws(server, port)
                con_list[server] = connection;
                connection.on('error',
                       function(error) {
-                          console.warn(strTimeSQ() + ". #ERROR: connection with [" + server + "] failed " + error.toString());                      
+                          console.error(strTimeSQ() + ". #ERROR: connection with [" + server + "] failed " + error.toString());                      
                             });  // ob error 
                 
                connection.on('close',
@@ -267,29 +266,18 @@ function subcribe(pair)
 
 }
 
-
+var pairs = ['btc_usd', 'btc_rur', 
+             'dsh_btc', 'dsh_usd', 
+             'eth_btc', 'eth_usd', 'eth_rur', 
+             'ltc_btc', 'ltc_usd', 
+             'nmc_btc', 'nmc_usd', 
+             'nvc_btc', 'nvc_usd', 
+             'ppc_btc', 'ppc_usd', 
+             'usd_rur'];
+     
+for (var i = 0; i < pairs.length; i++)
+     subcribe(pairs[i]);
+     
 connect_ws(srv_local, 8000);
-
-function subscribeAll()
-{
-
-  var pairs = ['btc_usd', 'btc_rur', 
-               'dsh_btc', 'dsh_usd', 
-               'eth_btc', 'eth_usd', 'eth_rur', 
-               'ltc_btc', 'ltc_usd', 
-               'nmc_btc', 'nmc_usd', 
-               'nvc_btc', 'nvc_usd', 
-               'ppc_btc', 'ppc_usd', 
-               'usd_rur'];
-
-
-      
-   for (var i = 0; i < pairs.length; i++)
-        subcribe(pairs[i]);
-   console.log("servers: " + lib.dumpObject(servers[srv_local], true));
-}
-
-
-setTimeout(subscribeAll, 3000);     
 
 // */

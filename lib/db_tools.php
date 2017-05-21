@@ -1,7 +1,6 @@
 <?php
-
+  // GRANT USAGE ON *.* TO 'btc-e'@'%' IDENTIFIED BY '***' WITH MAX_QUERIES_PER_HOUR 0 MAX_CONNECTIONS_PER_HOUR 0 MAX_UPDATES_PER_HOUR 0 MAX_USER_CONNECTIONS 0;GRANT ALL PRIVILEGES ON `trades_history`.* TO 'btc-e'@'%';
   include_once('common.php');
-
   $table_params = "";
   $color_errors = true;
   $ustr = '_';
@@ -11,6 +10,21 @@
   $mysqli = false;  
   $double_field = "double NOT NULL DEFAULT '0'";
   $float_field  = "float NOT NULL DEFAULT '0'";
+  
+  function crop_query($query, $limit = 70)
+  {
+    $lines = explode("\n", $query);
+    if (count($lines) <= $limit) return $query;
+    
+    $rmv = count($lines) - $limit - 10;
+    if ($rmv <= 0) return $query;
+    
+    $ins = array( "... [$rmv lines] ..." );    
+    array_splice($lines, 10, $rmv, $ins); // remove internal lines
+    
+    return implode($lines, "\n");
+  }
+  
     
   // OOP wrapper
   class mysqli_ex extends mysqli 
@@ -31,8 +45,9 @@
         
         if (!$result)
         {            
-          $err = $this->error;        
-          log_msg("$ct_open#FAILED$ct_close [$query] with error:\n\t$err\n");
+          $err = $this->error;          
+          $cr = crop_query($query);        
+          log_msg("$ct_open#FAILED$ct_close [$cr] with error:\n\t$err\n");
           print_traceback();           
         }
         return $result;
@@ -95,6 +110,28 @@
     }
   }
 
+  function init_remote_db($db_user, $db_pass)
+  {
+      global $db_servers, $db_alt_server;
+      $remote = false;
+      
+      foreach ($db_servers as $alt_server)
+      { 
+        $db_alt_server = $alt_server;         
+        $remote = new mysqli_ex($alt_server, $db_user, $db_pass);
+        if ($remote && 0 == mysqli_connect_errno())
+        {    
+           log_msg("connected to $alt_server  ...");
+           break;
+        }   
+        else    
+           log_msg(" failed connect to remote server $alt_server \n");       
+        
+      } 
+      return $remote; 
+  }
+
+
   function table_exists($table)
   {
     return (mysql_num_rows(mysql_query("SHOW TABLES LIKE '$table'")) == 1);
@@ -128,7 +165,8 @@
      if (!$result)
      {            
        $err = mysql_err();       
-       log_msg("#FAILED [$query] with error:\n\t$err\n");
+       $cr = crop_query($query);
+       log_msg("#FAILED [$cr] with error:\n\t$err\n");
        print_traceback();
        
      }
@@ -229,4 +267,5 @@
      
      try_query($query);
   }
+
 ?>

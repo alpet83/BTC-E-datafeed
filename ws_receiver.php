@@ -63,12 +63,11 @@
   $start = time();    
   $cmd_file = getcwd().'/command_ws.txt';
   file_put_contents($cmd_file, 'nope');
-
-  
   
   while ($server->work() >= 0)
   {
      usleep(1000);
+     set_time_limit(300);     
      foreach ($upd_trades as $pair => $val)
      {
        save_trades($pair, true);

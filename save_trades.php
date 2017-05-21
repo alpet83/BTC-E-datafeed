@@ -2,14 +2,9 @@
   header("Access-Control-Allow-Origin:*");
     
   include_once('lib/btc-e.api.php');
-  echo "script init 1\n";
   include_once('lib/config.php');
-  echo "script init 2\n";
   include_once('lib/db_tools.php');
-  echo "script init 3\n";                                                                 
   include_once('lib/common.php');
-  echo "script init 4\n";
-  
   
   ob_implicit_flush();
   
@@ -173,18 +168,40 @@
         $query = "UPDATE $table\n";
         $query .= "SET high={$b[2]}, low={$b[3]}, close={$b[4]}, volume={$b[5]}, last_trade={$b[6]}\n";
         $query .= "WHERE ts='{$last_ts}'";
-        // echo "$query\n\n";
+        echo "$query\n\n";       
+        
         $mysqli->try_query($query);   
      }
-           
-     if ($cnt > 0 && $cnt < 10000)
+        
+     $added = 0;      
+     $limit = 5000;
+     
+     while ( count($bars) > 0 )  
      {
         log_msg ("parsed [$count] ticks, generated [$cnt] new bar(s) \n");
         $query = "INSERT INTO $table($columns)\nVALUES\n";
-        $query .= implode($bars, ",\n");        
-	$query .= " ON DUPLICATE KEY UPDATE close=VALUES(close), volume=VALUES(volume)\n";
-        // echo "$query\n\n";
-        if(!$mysqli->try_query($query))
+        
+        $slice = array();                             
+                              
+        if (count($bars) <= $limit)
+        {
+          $slice = $bars;
+          $bars = array();
+        }    
+        else   
+           $slice = array_splice($bars, 0, $limit);                                         
+        
+        $query .= implode($slice, ",\n");        
+	      $query .= " ON DUPLICATE KEY UPDATE close=VALUES(close), volume=VALUES(volume)\n";
+	      
+        $add = count($slice);              
+        
+        if ($add < $cnt)
+            echo ("trying insert $add/$cnt rows in $table \n");
+        
+        if($mysqli->try_query($query))
+           $added += $add; 
+        else           
          {
             log_msg(" on error: cleanup table tail... ");
             $mysqli->try_query("DELETE FROM $table WHERE last_trade >= $last_trade");
@@ -193,6 +210,7 @@
 
           // $mysqli->try_query("TRUNCATE TABLE $table"); // need
      }
+     
       
      fclose($log_file); $log_file = false;
   } // save_bars
@@ -228,7 +246,7 @@
 
 
      $date = utc_time();
-     $remote = new mysqli_ex($db_alt_server, $db_user, $db_pass);
+     $remote = init_remote_db($db_user, $db_pass); // select one from accessible server
      if ($remote && 0 == mysqli_connect_errno())
      {
         log_msg("#OPT($pair): have trades with id < $old_id, checking data on remote server $db_alt_server  ...");
@@ -274,7 +292,9 @@
                 
      }     
      else
-        log_msg(" failed connect to remote server $db_alt_server");
+     {
+       log_msg(" failed connect to remote server $db_alt_server");       
+     }
 
      $remote = null;
      $upd_age = 100; // как давно обновлялось

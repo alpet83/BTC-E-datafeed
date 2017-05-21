@@ -115,9 +115,12 @@
         $start = time();
 
         // проверка, чего можно вставить перед новой котировкой        
-        $remote = new mysqli_ex($db_alt_server, $db_user, $db_pass);
+        $remote = init_remote_db($db_user, $db_pass); // select one from accessible server
         if ($remote->connect_error)
-           log_msg("#FAILED: cannot connect to remote DB [$db_alt_server] {$remote->connect_error}");
+        {
+          log_msg("#FAILED: cannot connect to remote DB [$db_alt_server] {$remote->connect_error}");
+          switch_alt_server();
+        }  
         else
         {
            $remote->select_db('ticker_history'); 

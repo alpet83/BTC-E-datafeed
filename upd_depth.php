@@ -303,21 +303,39 @@
 
   function load_remote_depth($pair)
   {
-     global $mysqli, $last_ts, $db_alt_server, $db_user, $db_pass;
+     global $conn_attemtps, $mysqli, $mysqli_remote, $last_ts, $db_alt_server, $db_user, $db_pass;
       
      $last_ts = $mysqli->select_value('ts' , "$pair\137_diff", 'ORDER BY ts DESC');
      
      $date = utc_time($last_ts);
+     
      if (time() - $date->getTimestamp() < 10)
      {
         log_msg("load remote depth ignored, due data actual");
         return; // local data was actual
      }
+     
+     $sec = $date->format('i') * 1;
+      
+      
+     if (!$mysqli_remote)
+     {        
+        if ($conn_attemtps < 10 || ($sec > 40 && $sec < 50) )
+        {
+          printf("[%s] #DBG: attempt #$conn_attemtps reconnect to remote DB...\n ", $date->format('H:i:s'));     
+          $mysqli_remote = init_remote_db ($db_user, $db_pass);
+          $conn_attemtps ++;
+        }  
+     
+     } 
        
        
-     $remote = new mysqli_ex($db_alt_server, $db_user, $db_pass);
+     $remote = $mysqli_remote;
+     
+     
      if ($remote && 0 == mysqli_connect_errno())
      {
+        $conn_attemtps = 0;
         $date->setTimestamp( time() - 5 ); // go to past        
         $limit = $date->format('Y-m-d H:i:s');
      
