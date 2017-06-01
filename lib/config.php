@@ -16,6 +16,8 @@
   $db_alt_server = $db_servers[0];
   $db_user = 'btc-e';
   $db_pass = '';
+    
+  $tmp_data_dir = '/var/www';
   
   function switch_alt_server()
   {

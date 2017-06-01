@@ -57,7 +57,7 @@
         return $this->try_query("SELECT $fields FROM $table\n$params", $rmode);        
      }
 
-     function select_row($fields, $table, $params = '', $type = MYSQL_NUM)
+     function select_row($fields, $table, $params = '', $type = MYSQLI_NUM)
      {
         $r = $this->select_from($fields, $table, "$params\n LIMIT 1", $type);     
         if (!$r) return null;           
@@ -124,7 +124,11 @@
            break;
         }   
         else    
-           log_msg(" failed connect to remote server $alt_server \n");       
+        {
+           log_msg(" failed connect to remote server $alt_server \n");
+           echo "#WARN: remote_db server [$alt_server] inaccessble ";
+           $db_alt_server = "#FAILED:$db_alt_server";  
+        }         
         
       } 
       return $remote; 

@@ -33,7 +33,7 @@
 
   $api = mt_rand(3, 4);
 
-  $date_dir = "/var/www/depth/".$ldt->format('Ymd');  
+  $date_dir = "$tmp_data_dir/depth/".$ldt->format('Ymd');  
     
   
   
@@ -189,7 +189,7 @@
 
      $old = array();
 
-     while ($line = $old_res->fetch_array(MYSQL_NUM))     
+     while ($line = $old_res->fetch_array(MYSQLI_NUM))     
              array_push($old, $line);
      
      $flags = 2;

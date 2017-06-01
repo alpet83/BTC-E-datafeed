@@ -12,7 +12,7 @@
   $debug = true;
   set_time_limit(30);
     
-  $date_dir = "/var/www/html/trades/".$date->format('Ymd');
+  $date_dir = "$tmp_data_dir/trades/".$date->format('Ymd');
   $ts = $date->format('Y-m-d H:i:s');
 
   $trades_fields = array('id' => 'int(11) unsigned NOT NULL AUTO_INCREMENT');
@@ -43,7 +43,7 @@
 
      log_msg("#DBG(save_bars): getting data for $pair...");
      $tmp = $mysqli->try_query("SHOW CREATE TABLE $table");
-     $row = $tmp->fetch_array(MYSQL_NUM);
+     $row = $tmp->fetch_array(MYSQLI_NUM);
      if ($row && strpos($row[1], 'CURRENT_TIMESTAMP'))
      {          
         log_msg("WRONG SQL:\n" .$row[1]);
@@ -105,7 +105,7 @@
      // processing all ticks 
        
      $ts = new DateTime('now', $tz);  
-     while ($row = $ticks->fetch_array(MYSQL_NUM))
+     while ($row = $ticks->fetch_array(MYSQLI_NUM))
      {
        $count ++;       
        $ts->modify($row[0]);
@@ -258,7 +258,7 @@
         $lines = array();
          
         if ($result)        
-        while($row = $result->fetch_array(MYSQL_NUM))
+        while($row = $result->fetch_array(MYSQLI_NUM))
         {             
            $row[0] = "'".$row[0]."'";
            $l = '('.implode($row, ',').')';

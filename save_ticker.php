@@ -11,7 +11,7 @@
   set_time_limit(300);
   
   $date = utc_time();
-  $date_dir = "/var/www/ticker/".$date->format('Ymd');
+  $date_dir = "$tmp_data_dir/ticker/".$date->format('Ymd');
   // check_mkdir($date_dir);
 
   $ts = $date->format('Y-m-d H:i:s');
@@ -59,7 +59,7 @@
      make_table_ex('ticker_history.'.$pair, $ticker_fields, 'ts', ", UNIQUE KEY `updated` (`updated`), KEY(`volume`)");
      
      $tmp = $mysqli->try_query("SHOW CREATE TABLE $pair");
-     $row = $tmp->fetch_array(MYSQL_NUM);
+     $row = $tmp->fetch_array(MYSQLI_NUM);
      if ($row && strpos($row[1], '`volume` float'))
      {          
         log_msg("WRONG SQL:\n" .$row[1]);        
@@ -138,7 +138,7 @@
            if ($rows)
            {
               log_msg("#DBG: received {$rows->num_rows} rows");
-              while ($row = $rows->fetch_array(MYSQL_NUM))
+              while ($row = $rows->fetch_array(MYSQLI_NUM))
               {             
                 $row[0] = "'{$row[0]}'";
                 $row[1] = "'{$row[1]}'";                              

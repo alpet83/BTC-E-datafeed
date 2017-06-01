@@ -115,7 +115,7 @@
     $query = "SELECT SUM($fields) FROM $pair$suffix\n";
     $result = $mysqli->query($query); 
     if (!$result) die("Failed <$query> with errors:\n".$mysqli->error);    
-    return  $result->fetch_array(MYSQL_NUM)[0];
+    return  $result->fetch_array(MYSQLI_NUM)[0];
   }
   
 
@@ -322,18 +322,18 @@
      {        
         if ($conn_attemtps < 10 || ($sec > 40 && $sec < 50) )
         {
-          printf("[%s] #DBG: attempt #$conn_attemtps reconnect to remote DB...\n ", $date->format('H:i:s'));     
+          printf("[%s] #DBG: pair [$pair], attempt #$conn_attemtps reconnect to remote DB...\n ", $date->format('H:i:s'));     
           $mysqli_remote = init_remote_db ($db_user, $db_pass);
           $conn_attemtps ++;
+          // echo(" mysqli_remote: %s\n");
+          // var_dump($mysqli_remote);
         }  
      
      } 
        
-       
      $remote = $mysqli_remote;
      
-     
-     if ($remote && 0 == mysqli_connect_errno())
+     if ($remote && 0 == $remote->connect_errno)
      {
         $conn_attemtps = 0;
         $date->setTimestamp( time() - 5 ); // go to past        
@@ -349,9 +349,10 @@
         $result = $remote->try_query($query);
         
         $lines = array();
+                
          
         if ($result)        
-        while($row = $result->fetch_array(MYSQL_NUM))
+        while($row = $result->fetch_array(MYSQLI_NUM))
         {             
            $row[0] = "'".$row[0]."'";
            $l = '('.implode($row, ',').')';
@@ -360,9 +361,10 @@
            $lines []= $l;
         } 
         else
+        {
           log_msg(" query [$query] failed with error: ".$remote->error);
-        $remote->close();
-          
+          var_dump($mysqli_remote);
+        }
         // log_msg('#PERF: request complete!');  
           
         if (count($lines) > 0)
@@ -431,7 +433,7 @@
          $full_ts = $mysqli->query("SELECT ts FROM $table ORDER BY ts DESC LIMIT 1");
          if ($full_ts)
          { 
-             $full_ts = $full_ts->fetch_array(MYSQL_NUM)[0];
+             $full_ts = $full_ts->fetch_array(MYSQLI_NUM)[0];
              // if (is_array($full_ts)) $full_ts = $full_ts[0];        
          }                
          if ($full_ts && strlen($full_ts) > 7)
@@ -493,9 +495,9 @@
           // оба массива отсортированы по возрастанию цены(!)
           
           
-          while ($row = $last_asks->fetch_array(MYSQL_NUM))          
+          while ($row = $last_asks->fetch_array(MYSQLI_NUM))          
                  $asks []= $row;
-          while ($row = $last_bids->fetch_array(MYSQL_NUM))          
+          while ($row = $last_bids->fetch_array(MYSQLI_NUM))          
                  $bids []= $row;
           
           
