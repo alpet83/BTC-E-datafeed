@@ -1,6 +1,7 @@
 <?php
 
   include_once('lib/common.php');
+  include_once('lib/db_tools.php');
   set_time_limit(30);
   
   $pair = rqs_param('pair', 'btc_usd');
@@ -10,10 +11,11 @@
   $price_max = rqs_param('price_max', 1e12);
   
   $colors = array();
+
+  $mysqli = new mysqli_ex('10.110.10.10', 'db_reader', 'dbr371x');
+  $mysqli->select_db("depth_history") or die('cannot select DB depth_history');
   
   
-  $link = mysql_connect('localhost', 'db_reader', 'dbr371x') or die('cannot connect to DB server: '.mysql_error()); // global for all actions
-  mysql_select_db("depth_history") or die('cannot select DB depth_history');
   
   function save_image($im)
   {
@@ -23,10 +25,9 @@
   }
   
   function convert_depth_data($res)
-  {
+  {  
      $data = array();
-
-     while ($l = mysql_fetch_array($res, MYSQL_ASSOC))
+     while ($l = $res->fetch_array(MYSQLI_ASSOC))
      {
         $ts = $l['ts'];                       // 0
         $price = floatval ($l['price']);      // 1
@@ -43,23 +44,18 @@
                            
   function get_depth_changes($pair, $filter)
   {
-     global $link;    
+     global $mysqli;    
      $query = "SELECT * FROM $pair"."__diff\n";
      $query .= $filter;     
      $query .= "ORDER BY ts\n";
-     $res = mysql_query($query) or die("Failed <$query> with errors:\n".mysql_error());
+     $res = $mysqli->try_query($query) or die("Failed <$query> with errors:\n". $mysqli->error);
      return convert_depth_data($res);           
   }                         
                            
   function get_full_depth ($pair, $table, $filter)
-  {
-  
-     global $link;    
-     $query = "SELECT * FROM $pair"."$table\n";
-     $query .= $filter;     
-     $query .= "ORDER BY price\n";     
-     $res = mysql_query($query) or die("Failed <$query> with errors:\n".mysql_error());
-
+  {  
+     global $mysqli;    
+     $res = $mysqli->select_from('*', $pair.$table, $filter." ORDER BY price\n");
      return convert_depth_data($res);
   }                        
                               
@@ -545,5 +541,5 @@
   
   save_image($im);
   
-  mysql_close($link);
+  $mysqli->close();
 ?>
