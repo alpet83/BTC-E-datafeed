@@ -1,14 +1,16 @@
+...
 <?php
   include_once('lib/common.php');
   include_once('lib/config.php');
-  include_once('lib/db_tools.php');  
+  include_once('lib/db_tools.php');
   include_once('lib/web_socket.php');
+  
   include_once('save_trades.php');  
   include_once('upd_depth.php');
-    
   $ws_recv = true;
   
   set_time_limit(1860); // для ограничения возможных утечек памяти, предполагается циклический запуск скрипта (или по расписанию)
+  echo str_ts_sq()." creating server... \n"; 
   
   $upd_trades = array();
   
@@ -22,6 +24,7 @@
       {
           $text = str_replace('depth=', '', $text);
           echo ( str_ts_sq().". #DEPTH: processing data, size: ".strlen($text)."\n");
+          $tstart = pr_time();
           // echo "$text\n";
           
           if (strlen($text) < 10) return;
@@ -29,8 +32,9 @@
           $data = json_decode($text);          
           
           if (!$link) init_db('depth_history');
-          complex_update($data);      
-          echo ( str_ts_sq().". #DEPTH: data saved to DB \n" );              
+          complex_update($data);
+          $elps = pr_time() - $tstart;      
+          echo ( str_ts_sq().". #DEPTH: data saved to DB, timing $elps seconds \n" );              
           return;
       }
       if (strpos($text, "trade=") !== FALSE)
@@ -53,7 +57,6 @@
   
   };
   
-  echo str_ts_sq()." creating server... \n";
   
   if (!$link) init_db();
   
@@ -63,11 +66,12 @@
   $start = time();    
   $cmd_file = getcwd().'/command_ws.txt';
   file_put_contents($cmd_file, 'nope');
+
+  
   
   while ($server->work() >= 0)
   {
      usleep(1000);
-     set_time_limit(300);     
      foreach ($upd_trades as $pair => $val)
      {
        save_trades($pair, true);
@@ -83,6 +87,15 @@
      { 
         echo str_ts_sq().". last command = [$cmd]\n";
         sleep(1);
+     }
+     
+     if (0 == $elps % 10 & !$link)  
+         init_db();
+     
+     if ($elps >= 300 & !$link) 
+     {
+        echo str_ts_sq().". #FATAL: cannot connect to DB. Work loop breaking... \n";
+        break;
      }
      
      if (strpos($cmd, 'stop') !== false || $elps >= 1800)

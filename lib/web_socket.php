@@ -200,7 +200,7 @@
         
         if ( isset($set[$opcode]) )
             $decodedData['type'] = $set[$opcode];
-        if (!$decodedData['type'])
+        if ( isset($decodedData['type']) && !$decodedData['type'])
                 return array('type' => '', 'payload' => '', 'error' => 'unknown opcode (1003)');
         
     
@@ -268,11 +268,19 @@
    function onMessage($connect, $data) 
    {
      $data = $this->decode($data);
-     $type = $data['type'];
+     $type = 'text';
+     if (isset($data['type'])) 
+        $type = $data['type'];
+     else
+     {
+       echo "#WARN: (onMessage) data.type not specifined in:\n ";
+       print_r($data);
+     }   
+     
      $text = $data['payload'];
      if ($type == 'text')          
          $this->onText($connect, $text);
-         
+
      if ($type == 'ping')
          fwrite($connect, $this->encode('', 'pong'));    
    }
@@ -284,5 +292,5 @@
     
 } // class WebSocket ========================================
 
-
-
+ // echo "web_socket.php included \n";
+?>

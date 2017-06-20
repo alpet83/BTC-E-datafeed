@@ -308,10 +308,11 @@
      $last_ts = $mysqli->select_value('ts' , "$pair\137_diff", 'ORDER BY ts DESC');
      
      $date = utc_time($last_ts);
+     $elps = time() - $date->getTimestamp();
      
-     if (time() - $date->getTimestamp() < 10)
+     if ($elps < 30)
      {
-        log_msg("load remote depth ignored, due data actual");
+        log_msg("load remote depth ignored, due local data actual ($elps seconds elapsed)");
         return; // local data was actual
      }
      
@@ -345,8 +346,13 @@
         $query  = "SELECT $fields FROM trades_history.$pair\n";
         $query .= " WHERE (ts > '$last_ts') and (ts < '$limit') \n";
         $query .= ' ORDER BY ts';        
-        log_msg($query);
+        // log_msg($query);
+        $tstart = pr_time();
         $result = $remote->try_query($query);
+        $elps = pr_time() - $tstart;
+        if ($elps > 0.1)
+            log_msg("#OPT: remote query timing $elps seconds "); 
+        
         
         $lines = array();
                 
@@ -390,7 +396,6 @@
   {
      global $ts, $date, $mysqli, $last_ts, $date_dir, $depth_fields, $stats_fields, $trades_fields, $last_url, $d_updates;
      
-     $mysqli->select_db('depth_history');
      $d_updates[$pair] ++;
      
      if ($d_updates[$pair] < 5)
@@ -580,10 +585,10 @@
      
      $fh = fopen($log_name, "a+");
      
-     fprintf($fh, str_ts_sq()." updating for all pairs \n");
+     
+     fprintf($fh, str_ts_sq()." complex updating for pairs \n");
      $start = precise_time();         
-          
-         
+     $mysqli->select_db('depth_history');
      
      foreach($data as $pair => $rec)
      if ($rec->ask || $rec->bid)

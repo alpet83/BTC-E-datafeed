@@ -8,10 +8,11 @@
   $pair = rqs_param('pair', 'btc_usd');
   $limit = rqs_param('limit', 300);
   
-  $mysqli = new mysqli_ex('localhost', 'db_reader', 'dbr371x');
+  $server = $_SERVER['SERVER_ADDR'];
+  $mysqli = new mysqli_ex($server, 'db_reader', 'dbr371x');
 
   if ($mysqli->connect_error)
-      die('cannot connect to DB server: '.$mysqli->connect_error); // global for all actions
+      die("cannot connect to DB server $server: ".$mysqli->connect_error); // global for all actions
 
 
   $mysqli->select_db("depth_history"); // or die('cannot select DB depth_history');
@@ -497,9 +498,7 @@
      }     
      
      
-     
      draw_vert_axis($im, $up_rect, $min_price, $max_price, true);
-          
      draw_vert_axis($im, $dn_rect, $min_cost,  $max_cost,  false);     
      $dn_rect->right = $up_rect->right;   
      // $dn_rect->left  = $up_rect->right;    

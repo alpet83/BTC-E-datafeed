@@ -4,12 +4,18 @@
   $table_params = "";
   $color_errors = true;
   $ustr = '_';
-
+  define('SQL_TIMESTAMP', 'Y-m-d H:i:s');
+  if (!defined('MYSQL_NUM'))
+       define('MYSQL_NUM', MYSQLI_NUM);
+ 
   // ", KEY `TIMESTAMP` (`ts`)"
   $link   = false;
   $mysqli = false;  
   $double_field = "double NOT NULL DEFAULT '0'";
   $float_field  = "float NOT NULL DEFAULT '0'";
+
+ 
+
   
   function crop_query($query, $limit = 70)
   {
@@ -102,7 +108,7 @@
     }
     else
     {
-      $link = mysql_connect('localhost', $db_user, $db_pass) or die('cannot connect to DB server: '.$link->error);
+      $link = mysql_connect('localhost', $db_user, $db_pass) or die('cannot connect to DB server: '.mysql_error());
       if ($link && $db_name)
           mysql_select_db($db_name, $link);
       $mysqli = false;
@@ -124,11 +130,7 @@
            break;
         }   
         else    
-        {
-           log_msg(" failed connect to remote server $alt_server \n");
-           echo "#WARN: remote_db server [$alt_server] inaccessble ";
-           $db_alt_server = "#FAILED:$db_alt_server";  
-        }         
+           log_msg(" failed connect to remote server $alt_server \n");       
         
       } 
       return $remote; 
@@ -183,7 +185,7 @@
      try_query($query);
   }
 
-  function make_table_ex ($table, $fields, $pk, $params = '')
+  function make_table_ex ($table, $fields, $pk, $params = '', $engine = 'InnoDB')
   {
      $query = "CREATE TABLE IF NOT EXISTS $table (\n";
      $keys = array_keys($fields);
@@ -197,7 +199,7 @@
 
      //$query .= "ON DELETE NO ACTION\n";
      //$query .= "ON UPDATE NO ACTION)\n";
-     $query .= ")\n ENGINE = InnoDB\n";
+     $query .= ")\n ENGINE = $engine\n";
      $query .= "DEFAULT CHARACTER SET = utf8\n";
      $query .= "COLLATE = utf8_unicode_ci\n";
 
@@ -207,19 +209,19 @@
             die("make_table failed [\n".$query.'] with errors:\n '.mysql_err());
   }
 
-  function make_table ($table, $fields, $params)
+  function make_table ($table, $fields, $params, $engine = 'InnoDB')
   {
-     return make_table_ex($table, $fields, 'id', $params);
+     return make_table_ex($table, $fields, 'id', $params, $engine);
   }
 
-  function select_from($fields, $table, $params, $type = MYSQL_NUM)
+  function select_from($fields, $table, $params, $type = MYSQLI_NUM)
   {    
      $query = "SELECT $fields FROM $table\n$params";     
      $r = try_query($query);
      return $r;
   }
 
-  function select_row($fields, $table, $params, $type = MYSQL_NUM)
+  function select_row($fields, $table, $params, $type = MYSQLI_NUM)
   {
      $r = select_from($fields, $table, "$params\n LIMIT 1", $type);     
      if (!$r)             

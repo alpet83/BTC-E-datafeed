@@ -28,6 +28,15 @@
     return '['. str_ts().']';
   }
   
+  
+  function pr_time()
+  { 
+     list($usec, $sec) = explode(" ", microtime());
+     $usec = str_replace('0.', '.', $usec);            
+     return doubleval( strval($sec).$usec );     
+  }
+
+  
   function precise_time()
   {
      list($usec, $sec) = explode(" ", microtime());

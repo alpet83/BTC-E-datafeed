@@ -1,4 +1,4 @@
-<pre><?php
+<?php
   include_once('lib/btc-e.api.php');
   include_once('lib/common.php');
   include_once('lib/config.php');
@@ -9,7 +9,8 @@
   error_reporting(E_ERROR | E_WARNING | E_PARSE | E_NOTICE);
   
   define('MIN_VOLUME', 0.005);
-  
+  // define('SQL_TIMESTAMP', 'Y-m-d H:i:s');
+    
 
   $ldt = new DateTime('now');
   $sec = $ldt->format('s') * 1;
@@ -18,8 +19,8 @@
   if ($sec < 59)
   {
       log_msg ("time not actual ");
-      if ($sec < 50)   
-          sleep(10);
+      if ($sec < 55)   
+          sleep(55 - $sec);
       else 
           sleep(1);    
       return;
@@ -33,24 +34,30 @@
 
   $api = mt_rand(3, 4);
 
-  $date_dir = "$tmp_data_dir/depth/".$ldt->format('Ymd');  
+  $date_dir = "/var/www/depth/".$ldt->format('Ymd');  
     
   
   
-  $date = new DateTime ('now', new DateTimeZone('UTC'));
+  $date = utc_time(); // new DateTime ('now', new DateTimeZone('UTC'));
   $ldt->modify('now');   
-  $ts = $date->format('Y-m-d H:i:s'); // GMT ts
+  $ts = $date->format(SQL_TIMESTAMP); // GMT ts
   $sec  = ( $date->format('s') + 0 ); 
   $m    = ( $date->format('i') + 0 );
   if ($sec > 50) $m++;
   
   $last_ts = '';
   
-  $pair = rqs_param('pair', '');  
+  $pair = rqs_param('pair', '');
+  if (strlen($pair) > 0)
+      echo "<pre>";
+    
   $pair_flt = '_';
     
   foreach ($argv as $arg)
   {  
+    if (strpos($arg, '=') === false && $argc <= 2)
+        $pair = $arg;
+  
     if (strpos($arg, 'pair=') !== false)    
         $pair = str_replace('pair=', '', $arg);
         
@@ -64,7 +71,7 @@
   else
      $api = 4;
   
-  $log_dir = "logs/save_depth$pair_flt";
+  $log_dir = "logs/save_depth_$pair";
   check_mkdir($log_dir);  
   $log_name = "$log_dir/$m.log";
   $log_file = fopen($log_name, "w");
@@ -121,7 +128,7 @@
   function load_last_depth($pair, $suffix)
   {
     global $mysqli;
-    $result = $mysqli->select_from('price, volume', $pair.$suffix,"ORDER BY price\n"); 
+    $result = $mysqli->select_from('price, volume, ts', $pair.$suffix, "ORDER BY price\n"); 
     if (!$result) die("Failed load depth ");    
     return $result;
   } 
@@ -184,13 +191,36 @@
  
   function save_diff($pair, $old_res, $new, $suffix)
   {
-     global $commits;
+     global $commits, $ts;
      if (0 == count($new)) return;
 
      $old = array();
+     $s_date  = utc_time($ts);
+     $s = $s_date->format('s');
+     if ($s > 0 && $s < 15)    
+         $s += 60;
+     else
+         $s = 60;            
+     
+     $ref = $s_date->sub(new DateInterval("PT55".'S'))->format(SQL_TIMESTAMP);
+     echo " save_diff $pair, start ts [$ts], ref ts [$ref] \n";          
+     $lch = $ref;
 
-     while ($line = $old_res->fetch_array(MYSQLI_NUM))     
-             array_push($old, $line);
+     while ($line = $old_res->fetch_array(MYSQLI_NUM))
+     {     
+        array_push($old, $line);
+        $lts = str_replace('.000', '', $line[2]);        
+        if ($lts > $lch)        
+            $lch = $lts;           
+     }   
+     
+     if ($lch > $ref)
+     {
+        echo "\t diff table last changed at [$lch], breaking diff detection\n";
+        return;
+     } 
+     
+     
      
      $flags = 2;
      
@@ -252,7 +282,8 @@
      } // while
      
      if ($commits > 0)
-         log_msg ("diff commits total = $commits \n");
+         log_msg ("diff commits total = $commits ", "\n", true);
+        
   } // save_diff
 
   function try_insert($query) // only for depth __ask/__bids tables
@@ -275,60 +306,91 @@
      if ( count($data->asks) < 2000 && count($data->bids) < 2000)
           $total = true;
   
-  
+     $tstart = pr_time();
+     $lts = date('H:i:s');
      if ($total)
-     {    
-        $query = "TRUNCATE TABLE $pair$suffix";        
-        $result = $mysqli->try_query($query) or die("#ERROR: request failed");
-        log_msg(" $query affected rows: ".$mysqli->affected_rows);
+     {          
+        list($usec, $sec) = explode(" ", microtime());
+         
+        // echo "[$lts]. #DBG: truncating table $pair$suffix...\n";    
+        // $query = "TRUNCATE TABLE $pair$suffix";        
+        $query = "DELETE FROM `$pair$suffix`";
+        $result = $mysqli->try_query($query);
+        if (!$result)
+            echo("#ERROR: request [$query] failed in cleanup table\n");
+                
+        $info = sprintf(" query [$query] timing %.3f sec, %d rows affected", pr_time() - $tstart,  $mysqli->affected_rows);
+        // echo "  $info \n";                
+        log_msg($info);
      }
      else
      {
         $vals = $data->asks;
-        if (strpos($suffix, 'bids'))
+        if (strpos($suffix, 'bids') !== false)
             $vals = $data->bids;
             
         $min_v = $vals[0][0];                  
-        $max_v = $vals[count($vals)- 1][0];
+        $max_v = $vals[count($vals)- 1][0]; 
         
-        if ($min_v > $max_v)
+        if ($min_v > $max_v) // swap it, if wrong
         {
           $t = $max_v;
           $max_v = $min_v;
           $min_v = $t; 
         }   
         
-        log_msg(" full data range: $min_v .. $max_v ");                   
+        
+        
+        log_msg(" full data.$suffix range: $min_v .. $max_v ");                   
         if ($min_v > 0 && $min_v < $max_v)
+        {            
             $query = "DELETE FROM $pair$suffix"." WHERE (price >= $min_v) and (price <= $max_v);";
+            
+            if (strpos($suffix, 'asks') !== false) // для асков удалить все данные, ниже наивысшего нового
+                $query = "DELETE FROM $pair$suffix"." WHERE (price <= $max_v);";
+            
+            if (strpos($suffix, 'bids') !== false) // для бидов удалить все данные, выше наименьшего нового
+                $query = "DELETE FROM $pair$suffix"." WHERE (price >= $min_v);";
+            
+            echo "[$lts]. #DBG: range [$min_v .. $max_v], query: \n\t $query\n";
+        }    
         else                 
             $query = "TRUNCATE TABLE $pair$suffix";
             
         log_msg($query);    
-        $result = try_query($query) or die("\n#ERROR: clean request failed");
+        $result = $mysqli->try_query($query) or die("\n#ERROR: clean request failed");      
+        
      }
      
   }
 
   function save_full_depth ($pair, $table, $data)
   {              
-    global $ts, $m;
+    global $ts, $m, $mysqli, $depth_fields;
     
     $ts   = $data->ts;
    	$asks = $data->asks;
    	$bids = $data->bids;
- 
-    try_query("LOCK TABLES $pair$table WRITE");
-    cleanup_table($pair, $table, $data, 0 == $m);
+    $tmpt = $table.'_tmp';    
+    // $mysqli->try_query("CREATE TABLE IF NOT EXISTS `$pair$tmpt` LIKE `$pair$table`;");
+    make_table($pair.$tmpt, $depth_fields, ", UNIQUE KEY `OPT` (price), KEY `TIMESTAMP` (ts)", 'MEMORY');    
+    // $mysqli->try_query("LOCK TABLES $pair$table WRITE");    
+    $trunc = false;
+    if (0 == $m) $trunc = true;
+    if ( strpos($table, 'asks') !== false ) $trunc = true; // must be full replaced
+    if ( strpos($table, 'bids') !== false ) $trunc = true; // must be full replaced        
     
-    $head = "INSERT INTO $pair$table\n";
+    cleanup_table($pair, $tmpt, $data, $trunc);
+    
+    $tstart = pr_time();
+    
+    $head = "INSERT INTO $pair$tmpt\n";
     $head .= "(ts,price,volume,flags)\n";
     $head .= "VALUES";       
   
     $acnt = 0;
     $bcnt = 0;
-    $query = '';
-  
+    $query = '';  
     $skip = 0;
     if (strpos($table, 'asks'))
     {    
@@ -376,11 +438,21 @@
     }
       	 // save_depth_row($pair, $table, $b, 1);
     if (strlen($query) > strlen($head) + 10)
+    {
         try_insert($query);
-        
-    try_query("UNLOCK TABLES"); 
-        
-    log_msg (sprintf(" full depth was saved: ts = [$ts], asks = [$acnt], bids = [$bcnt], skip = [$skip], filter = %f \n", MIN_VOLUME));
+    }    
+    
+    $trash = $table.'_old';
+    
+    $mysqli->try_query("RENAME TABLE `$pair$table` TO `$pair$trash`, `$pair$tmpt` TO `$pair$table`;");  
+    // $mysqli->try_query("UNLOCK TABLES"); 
+    $elps = pr_time() - $tstart;    
+    $info = sprintf(" $pair$table depth was saved: ts = [$ts], asks = %5d, bids = %5d, skip = %4d], filter = %f, timing  = %.3f sec.\n", $acnt, $bcnt, $skip, MIN_VOLUME, $elps);
+    
+    $lts = date('H:i:s');
+    echo("[$lts]. #OPT: $info");    
+    log_msg ($info);
+    $mysqli->try_query("DROP TABLE `$pair$trash`;");
             
   }
   
@@ -389,14 +461,14 @@
   
   function prepare($pair)
   {
-     global $depth_fields, $stats_fields, $trades_fields;
+     global $depth_fields, $stats_fields, $trades_fields; // ENGINE = MEMORY
      // make_table($pair."__temp",    $depth_fields, ", KEY `OPT` (ts,price)");
      make_table($pair."__full",    $depth_fields, ", KEY `OPT` (ts,price)");
      make_table($pair."__diff",    $depth_fields, ", KEY `OPT` (ts,price)"); 
      
      // try_query("DROP TABLE $pair"."__last");     
-     make_table($pair."__asks",    $depth_fields, ", UNIQUE KEY `OPT` (price), KEY `TIMESTAMP` (ts)");
-     make_table($pair."__bids",    $depth_fields, ", UNIQUE KEY `OPT` (price), KEY `TIMESTAMP` (ts)");     
+     make_table($pair."__asks",    $depth_fields, ", UNIQUE KEY `OPT` (price), KEY `TIMESTAMP` (ts)", 'MEMORY');
+     make_table($pair."__bids",    $depth_fields, ", UNIQUE KEY `OPT` (price), KEY `TIMESTAMP` (ts)", 'MEMORY');     
      make_table_ex($pair."__stats",  $stats_fields, 'ts', false);
        
   }
@@ -544,21 +616,46 @@
   
   $loaded = 0;
   
-  $count = count($save_pairs);
+  
+  
+  
+  $batch = array();
+  if('all' == $pair) 
+     $batch = $save_pairs;
+  
+  
+  
+  
   
   $data_map = array();
-   
-  $i = mt_rand(1, $count);
+  
   $force = ($m == 0) || ($m == 30);
    
-   
+  if (strpos($pair, 'group') !== false) // group upload
+  {
+     $g = str_replace('group', '', $pair);   
+     $rows = $mysqli->select_from('pair', 'pair_groups', "WHERE grp = $g" );
+     if (!$rows) die('#FATAL: Not exists table `pair_groups`!');
+     
+     while ($row = $rows->fetch_array(MYSQLI_NUM))
+            $batch[] = $row[0];
+  } 
+  else   
   if (strlen($pair) >= 7)
   {
+     $batch[] = $pair;  
      log_msg(" single pair $pair update "); 
-     $data = load_data($pair);
-     save_for_pair($data, true); 
+     // $data = load_data($pair);
+     // save_for_pair($data, true); 
   }
-  else  
+  
+  $count = count($batch); 
+  $i = mt_rand(1, $count);
+  
+  printf ("[$ts]. #DBG: trying save $count pairs for request [$pair]: %s, start $i \n", join($batch, ','));
+
+  if ($count <= 0) die("invalid pairs set specified!\n");
+    
   // foreach ($save_pairs as $pair)
   while ($loaded < $count) 
   {     
@@ -567,8 +664,13 @@
      $elps = time() - $start;
            
      log_msg("[$loaded] elapsed $elps sec ================================================================================================== ");
-     $pair = $save_pairs[$i];
-     if (!strpos($pair, $pair_flt)) continue;
+     $pair = $batch[$i];
+     
+     if (!strpos($pair, $pair_flt)) 
+     {
+        echo " $pair ignored by filter! \n";
+        continue;
+     }
         
      prepare($pair); 
          
