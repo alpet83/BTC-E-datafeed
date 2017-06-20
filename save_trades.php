@@ -1,6 +1,6 @@
 <?php
+  // echo "....\n";
   header("Access-Control-Allow-Origin:*");
-    
   include_once('lib/btc-e.api.php');
   include_once('lib/config.php');
   include_once('lib/db_tools.php');
@@ -8,11 +8,12 @@
   
   ob_implicit_flush();
   
+  
   $date = utc_time();
   $debug = true;
   set_time_limit(30);
     
-  $date_dir = "$tmp_data_dir/trades/".$date->format('Ymd');
+  $date_dir = "/var/www/html/trades/".$date->format('Ymd');
   $ts = $date->format('Y-m-d H:i:s');
 
   $trades_fields = array('id' => 'int(11) unsigned NOT NULL AUTO_INCREMENT');
@@ -272,13 +273,16 @@
           
         // log_msg('#PERF: request complete!');  
           
-        if (count($lines) > 0)
+        if (count($lines) > 0 && strlen($lines[0]) > 5)
         {  
           // print_r($lines);
           $query = "INSERT INTO $pair ($fields) VALUES\n";
-          $query .= implode($lines, ",\n");
+          batch_query($query, '', $lines);
+          // $query .= implode($lines, ",\n");
           // echo "$query\n";
-          $mysqli->try_query($query);
+          // $mysqli->try_query($query);
+          
+          
           $result = $mysqli->try_query("SELECT trade_id, ts FROM $pair ORDER BY trade_id DESC LIMIT 1") or die("failed SELECT query : ".mysql_error());
           $row = $mysqli->select_row('trade_id, ts', $pair, 'ORDER BY trade_id DESC');
           if ($row)
@@ -396,29 +400,43 @@
   } // save_trades
 
 
-  $pair = rqs_param('pair', '');
-  if ('' == $pair && isset($argv[1]))
-      $pair = $argv[1]; 
-
-  echo "[$ts]. save_trades.php pair = [$pair] \n";
-   
-  if (strlen($pair) >= 7)
+  function main()
   {
-     init_db("trades_history");
-     save_trades($pair, true);
-     save_bars($pair, true);  
+    global $ts, $argv, $mysqli, $save_pairs;
+    $pair = rqs_param('pair', '');
+    if ('' == $pair && isset($argv[1]))
+        $pair = $argv[1]; 
+    if ('' == $pair)
+    {
+       echo "#WARN: no arguments specified! Using 'all' as default\n";
+       print_r($argv);
+       $pair = 'all';
+    }
+    else  
+      echo "[$ts]. save_trades.php pair = [$pair] \n";
+     
+    if (strlen($pair) >= 7)
+    {
+       init_db("trades_history");
+       save_trades($pair, true);
+       save_bars($pair, true);  
+    }
+    else
+    if ($pair == 'all')  
+    {
+       init_db("trades_history");
+       foreach ($save_pairs as $pair)
+       {
+          save_trades($pair, false);
+          save_bars($pair, false);
+       } // foreach
+    }  
+  
+    if ($mysqli) $mysqli->close();
+    // echo " script complete for pair [$pair] \n";
   }
-  else
-  if ($pair == 'all')  
-  {
-     init_db("trades_history");
-     foreach ($save_pairs as $pair)
-     {
-        save_trades($pair, false);
-        save_bars($pair, false);
-     } // foreach
-  }  
-
-  if ($mysqli) $mysqli->close();
-  echo " script complete for pair [$pair] \n";
+  
+  if (strpos($argv[0], 'trades') !== false) 
+      main();        
 ?>
+
