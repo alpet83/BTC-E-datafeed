@@ -1,4 +1,3 @@
-...
 <?php
   include_once('lib/common.php');
   include_once('lib/config.php');
@@ -74,7 +73,7 @@
      usleep(1000);
      foreach ($upd_trades as $pair => $val)
      {
-       save_trades($pair, true);
+       save_trades($pair, array(), true);
        save_bars($pair, true);     
      }                     
      $upd_trades = array();         

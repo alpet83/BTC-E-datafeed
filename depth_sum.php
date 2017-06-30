@@ -119,6 +119,9 @@
  
   $tdata = get_poloniex_ticker('BTC_USDT');
   $btc_rate = 2590;
+  $eth_rate = 300;
+  
+  $eth_raise = 52 * 15170; // coins per month
   
   if (strlen($tdata) > 100)
   {
@@ -134,17 +137,24 @@
     }    
     else
         print_r($tdata);
-            
+        
+    if (isset ($tdata->USDT_ETH)) 
+    {   
+        $t = $tdata->USDT_ETH;
+        echo "<!-- \n";
+        print_r($t);
+        echo "--> \n";
+        $eth_rate = $t->highestBid;        
+        
+    }                   
   }  
-   
-  
     
     
   
   
-  echo "Using rate $btc_rate\n";
-  
-  
+  echo "<h3>Using BTC rate $btc_rate, ETH rate $eth_rate</h3>\n";
+  printf ( "Average per month emission %d ETH, cost =<b> $%3.f MILLIONS</b> \n", $eth_raise, $eth_raise * $eth_rate / 1e6 );
+  printf ( "Average per year  emission %d ETH, cost =<b> $%3.f MILLIONS</b> \n", 12 * $eth_raise, 12 * $eth_raise * $eth_rate / 1e6 );
   
   function poloniex_load_add($pair, $rate)
   {
@@ -181,11 +191,12 @@
   
   $self = $_SERVER['SERVER_ADDR'];    
   $mysqli = new mysqli_ex($self, 'db_reader', 'dbr371x');
-  $mysqli->select_db("depth_history") or die('cannot select DB depth_history');
-  
   
   $btce_asks = array();
   $btce_bids = array();
+  
+   
+  
      
   function unpack_res($res, $rate)
   {
@@ -213,9 +224,13 @@
      add_depth($btce_asks, $btce_bids, 1, 25);
   }    
   
-                         
-  btce_load_depth('eth_btc', $btc_rate);  
-  btce_load_depth('eth_usd', 1);
+  
+  if (0 == mysqli_connect_errno())
+  {
+      $mysqli->select_db("depth_history") or die('cannot select DB depth_history'); 
+      btce_load_depth('eth_btc', $btc_rate);  
+      btce_load_depth('eth_usd', 1);
+  }   
     
   $mysqli->close();
   
@@ -289,6 +304,9 @@
     }
     echo "CoinOne $cnt bids in range [$pmin .. $pmax] = $vol\n"; 
   } 
+
+
+
 
 ?>
  </body>

@@ -41,8 +41,8 @@
     set_time_limit(300);
     $table = "$pair\137_$suffix";
 
-    if ($m <= 5)
-        $ts_from = '2017-02-01 00:00:00';
+    if ($m <= 15)
+        $ts_from = '2017-06-01 00:00:00';
     else
         $ts_from = $date->format('Y-m-d H:00:00'); 
     $ins = 0;       
@@ -218,6 +218,8 @@
   }
   
   init_db($db_name);
+  
+  shuffle ($save_pairs);
   
   foreach ($save_pairs as $pair)
   {  

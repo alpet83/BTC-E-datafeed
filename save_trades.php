@@ -1,6 +1,8 @@
 <?php
   // echo "....\n";
   header("Access-Control-Allow-Origin:*");
+  
+      
   include_once('lib/btc-e.api.php');
   include_once('lib/config.php');
   include_once('lib/db_tools.php');
@@ -13,7 +15,7 @@
   $debug = true;
   set_time_limit(30);
     
-  $date_dir = "/var/www/html/trades/".$date->format('Ymd');
+  $date_dir = getcwd()."/trades/".$date->format('Ymd');
   $ts = $date->format('Y-m-d H:i:s');
 
   $trades_fields = array('id' => 'int(11) unsigned NOT NULL AUTO_INCREMENT');
@@ -35,16 +37,16 @@
 
   function save_bars($pair, $force)
   {  
-     global $log_file, $mysqli, $bars_fields;
+     global $log_file, $mysqli, $bars_fields, $date;
      $table =  $pair.'__bars';     
-     $dir = "logs/trades";
+     $dir = "logs/trades/".$date->format('Ymd');
      check_mkdir($dir);
 
      $log_file = fopen("$dir/bars_$pair.log", "a+");
 
      log_msg("#DBG(save_bars): getting data for $pair...");
      $tmp = $mysqli->try_query("SHOW CREATE TABLE $table");
-     $row = $tmp->fetch_array(MYSQLI_NUM);
+     $row = $tmp->fetch_array(MYSQL_NUM);
      if ($row && strpos($row[1], 'CURRENT_TIMESTAMP'))
      {          
         log_msg("WRONG SQL:\n" .$row[1]);
@@ -106,7 +108,7 @@
      // processing all ticks 
        
      $ts = new DateTime('now', $tz);  
-     while ($row = $ticks->fetch_array(MYSQLI_NUM))
+     while ($row = $ticks->fetch_array(MYSQL_NUM))
      {
        $count ++;       
        $ts->modify($row[0]);
@@ -169,7 +171,7 @@
         $query = "UPDATE $table\n";
         $query .= "SET high={$b[2]}, low={$b[3]}, close={$b[4]}, volume={$b[5]}, last_trade={$b[6]}\n";
         $query .= "WHERE ts='{$last_ts}'";
-        echo "$query\n\n";       
+        // echo "$query\n\n";       
         
         $mysqli->try_query($query);   
      }
@@ -216,8 +218,35 @@
      fclose($log_file); $log_file = false;
   } // save_bars
 
+  function get_sync_data($pairs)
+  {
+     global $btce_api, $last_url;
+     $list = implode('-', $pairs);     
+     log_msg(" loading trades [$list] from btc-e, using public APIv$btce_api");     
+     
+     if ($btce_api >= 3)
+     {     
+        $txt = get_public_data('trades', $list, $btce_api, '');
+        if (trim($txt) == "")
+        {
+           log_msg(" failed get_public_data for $last_url");
+           return false;  
+        }
+      
+        $path =  getcwd()."/trades/";
+        check_mkdir($path);
+        $file_name = $path.$list."_last.json";
+        file_put_contents($file_name,  $txt);  
+        return json_decode($txt);        
+    }
+    
+    echo " get_sync_data not implemented for API v$btce_api \n";
+    
+    return false; 
+  }
+ 
 
-  function save_trades($pair, $force)
+  function save_trades($pair, $data, $force = false)
   {
      global $log_file, $ws_recv, $mysqli, $btce_api, $trades_fields, $date, $last_url, $db_alt_server, $db_user, $db_pass, $debug;
      $old_id = 0;
@@ -259,7 +288,7 @@
         $lines = array();
          
         if ($result)        
-        while($row = $result->fetch_array(MYSQLI_NUM))
+        while($row = $result->fetch_array(MYSQL_NUM))
         {             
            $row[0] = "'".$row[0]."'";
            $l = '('.implode($row, ',').')';
@@ -316,7 +345,7 @@
      $lazy = strpos($pair, "dsh_") || strpos($pair, "nvc_") || strpos($pair, "ppc_") || strpos($pair, "nmc_");
      
           
-     echo "old_id = $old_id \n";     
+     // echo "old_id = $old_id \n";     
           
      if ($old_id == 0 || $upd_age > 100)
        {     
@@ -340,24 +369,32 @@
         fclose($log_file); $log_file = false;
         return true;    
      }
+     
+     
+     $tab = $data;
 
+     if ($upd_age > 200 || !isset($tab->$pair)) // если нужно подгрузить данные с большим запасом, или они отсутствуют в пакете.
+     { 
 
-     log_msg(" loading trades from btc-e, using public APIv$btce_api");
-     echo ("[$pair]. #DBG: upd_age = $upd_age, after '$last_ts'. Using params [$params]\n");     
-     $txt = get_public_data('trades', $pair, $btce_api, $params);
-     if (trim($txt) == "")
-     {
-        log_msg(" failed get_public_data for $last_url");
-        fclose($log_file); $log_file = false;
-        return false;  
+       log_msg(" force loading [$pair] trades from btc-e, using public APIv$btce_api");
+       echo ("[$pair]. #DBG: upd_age = $upd_age, after '$last_ts'. Using params [$params]\n");     
+       $txt = get_public_data('trades', $pair, $btce_api, $params);
+       if (trim($txt) == "")
+       {
+          log_msg(" failed get_public_data for $last_url");
+          fclose($log_file); $log_file = false;
+          return false;  
+       }
+  
+       $path =  getcwd()."/trades/";
+       check_mkdir($path);
+       $file_name = $path.$pair."_last.json";
+       file_put_contents($file_name,  $txt);
+  
+       $tab = json_decode($txt);     
      }
-
-     $path =  getcwd()."/trades/";
-     check_mkdir($path);
-     $file_name = $path.$pair."_last.json";
-     file_put_contents($file_name,  $txt);
-
-     $tab = json_decode($txt);
+     else
+       echo " upd_age = $upd_age, using preloaded data...\n";
 
      log_msg("#DBG: previuos saved trade for $pair = $old_id \n");
 
@@ -402,41 +439,51 @@
 
   function main()
   {
-    global $ts, $argv, $mysqli, $save_pairs;
+    global $ts, $argc, $argv, $save_pairs, $mysqli;
+    
     $pair = rqs_param('pair', '');
     if ('' == $pair && isset($argv[1]))
         $pair = $argv[1]; 
-    if ('' == $pair)
-    {
-       echo "#WARN: no arguments specified! Using 'all' as default\n";
-       print_r($argv);
-       $pair = 'all';
-    }
-    else  
-      echo "[$ts]. save_trades.php pair = [$pair] \n";
+  
+    if (strlen($pair) > 0)
+        echo "[$ts]. save_trades.php pair = [$pair] \n";
+    else
+    { 
+       if ( count($argv) > 0 )
+       {
+         echo "#WARN: not specified pair[s] argument for script\n";
+         print_r ($argv);
+       } 
+          
+       return;
+    }        
+        
+    $data = array();            
      
     if (strlen($pair) >= 7)
     {
        init_db("trades_history");
-       save_trades($pair, true);
+       $data = get_sync_data(array($pair));  
+       save_trades($pair, $data, true);
        save_bars($pair, true);  
     }
     else
     if ($pair == 'all')  
     {
        init_db("trades_history");
+       $data = get_sync_data($save_pairs);
+       
        foreach ($save_pairs as $pair)
-       {
-          save_trades($pair, false);
-          save_bars($pair, false);
-       } // foreach
+       {        
+          save_trades ($pair, $data, false);
+          save_bars ($pair, false);
+       }  
+       
     }  
   
-    if ($mysqli) $mysqli->close();
-    // echo " script complete for pair [$pair] \n";
+    echo " script complete for pair [$pair] \n";
   }
   
-  if (strpos($argv[0], 'trades') !== false) 
-      main();        
+  main();
+  
 ?>
-
