@@ -242,8 +242,9 @@ setInterval(depthDataSubmit, 1000);
 
 // подключение к бирже, подписка на данные
 var Pusher = require('pusher-client');
-var btce_key = 'c354d4d129ee0faa5c92';       
-var client = new Pusher(btce_key); 
+// var btce_key = 'c354d4d129ee0faa5c92';
+var wex_key = 'ee987526a24ba107824c';        
+var client = new Pusher(wex_key, { cluster: "eu" }); 
 
 function subcribe(pair)
 {

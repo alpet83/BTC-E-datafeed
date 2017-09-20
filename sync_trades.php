@@ -29,6 +29,7 @@
   $trades_fields['volume']   = $double_field;
 
   $alt_server = rqs_param('server', $db_alt_server);
+  $all_pairs = false;
   
   echo "checking [$alt_server] registered in db_servers list... ";
   if (array_search($alt_server, $db_servers) !== false)
@@ -69,7 +70,7 @@
 
   function sync_for_pair($pair, $month)
   {
-     global $ts, $argv, $mysqli, $remote, $trades_fields, $last_url, $db_alt_server, $db_user, $db_pass, $first_ts, $remote_total;
+     global $ts, $all_pairs, $argv, $mysqli, $remote, $trades_fields, $last_url, $db_alt_server, $db_user, $db_pass, $first_ts, $remote_total;
      
      $old_id = 0;
      
@@ -82,6 +83,9 @@
      $start_ts = '2011-01-01 00:00:00';
      if (strpos($pair, 'nvc') !== false)
          $start_ts = '2013-01-01 00:00:00';
+     if ($all_pairs)
+         $start_ts = date('Y-m-01 00:00:00'); // first day of month
+     
      
      if (!$first_ts)     
           $first_ts = $remote->select_value('MIN(ts)', $pair, '');
@@ -386,16 +390,16 @@
          optimize($pair);      
   }
   
+  $all_pairs = ($pair == 'all');
   
-  if ($pair != 'all')
-  {
-     process($pair);
-  }     
-  else    
+  
+  if ($all_pairs)     
    foreach ($save_pairs as $pair)
    {  
       process($pair);     
    }  
+  else
+     process($pair);
 
   if ($mysqli) $mysqli->close();
   if ($remote) $remote->close();

@@ -37,14 +37,14 @@ function get_public_data($data, $pair, $api_ver, $params)
    curl_setopt($ch, CURLOPT_TIMEOUT, 45);
    curl_setopt($ch, CURLOPT_USERAGENT, 'Mozilla/4.0 (compatible; BTCE PHP client; '.php_uname('s').'; PHP/'.phpversion().')');
 
-   $url = "https://btc-e.nz/api/$api_ver/$pair/$data";
+   $url = "https://wex.nz/api/$api_ver/$pair/$data";
    if ($api_ver == 3) 
-       $url= "https://btc-e.nz/api/3/$data/$pair";
+       $url= "https://wex.nz/api/3/$data/$pair";
    if (isset($params))
   	$url = "$url?$params";
        
    if ($api_ver == 4)
-       $url= "http://darkstalker.ru/btce_cache.php?data=$data&pair=$pair&params=$params";
+       $url= "http://darkstalker.ru/wex_cache.php?data=$data&pair=$pair&params=".urlencode($params);
 
    // echo("url = $url\n");	
    curl_setopt($ch, CURLOPT_URL, $url);

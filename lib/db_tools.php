@@ -5,17 +5,12 @@
   $color_errors = true;
   $ustr = '_';
   define('SQL_TIMESTAMP', 'Y-m-d H:i:s');
-  if (!defined('MYSQL_NUM'))
-       define('MYSQL_NUM', MYSQLI_NUM);
  
   // ", KEY `TIMESTAMP` (`ts`)"
   $link   = false;
   $mysqli = false;  
   $double_field = "double NOT NULL DEFAULT '0'";
   $float_field  = "float NOT NULL DEFAULT '0'";
-
- 
-
   
   function crop_query($query, $limit = 70)
   {
@@ -63,7 +58,7 @@
         return $this->try_query("SELECT $fields FROM $table\n$params", $rmode);        
      }
 
-     function select_row($fields, $table, $params = '', $type = MYSQLI_NUM)
+     function select_row($fields, $table, $params = '', $type = MYSQL_NUM)
      {
         $r = $this->select_from($fields, $table, "$params\n LIMIT 1", $type);     
         if (!$r) return null;           
@@ -214,14 +209,14 @@
      return make_table_ex($table, $fields, 'id', $params, $engine);
   }
 
-  function select_from($fields, $table, $params, $type = MYSQLI_NUM)
+  function select_from($fields, $table, $params, $type = MYSQL_NUM)
   {    
      $query = "SELECT $fields FROM $table\n$params";     
      $r = try_query($query);
      return $r;
   }
 
-  function select_row($fields, $table, $params, $type = MYSQLI_NUM)
+  function select_row($fields, $table, $params, $type = MYSQL_NUM)
   {
      $r = select_from($fields, $table, "$params\n LIMIT 1", $type);     
      if (!$r)             
@@ -273,7 +268,7 @@
      try_query($query);
   }
   
-  function batch_query($qstart, $qend, $data, $limit = 5000) // big-insert optimizer
+  function batch_query($qstart, $qend, $data, $limit = 10000) // big-insert optimizer
   {  
      $cnt = count ($data);
      if ($cnt > $limit)

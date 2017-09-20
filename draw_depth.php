@@ -1,7 +1,6 @@
 <?php
 
   include_once('lib/common.php');
-  include_once('lib/db_tools.php');
   set_time_limit(30);
   
   $pair = rqs_param('pair', 'btc_usd');
@@ -11,11 +10,10 @@
   $price_max = rqs_param('price_max', 1e12);
   
   $colors = array();
-
-  $mysqli = new mysqli_ex('10.110.10.10', 'db_reader', 'dbr371x');
-  $mysqli->select_db("depth_history") or die('cannot select DB depth_history');
   
   
+  $link = mysql_connect('localhost', 'db_reader', 'dbr371x') or die('cannot connect to DB server: '.mysql_error()); // global for all actions
+  mysql_select_db("depth_history") or die('cannot select DB depth_history');
   
   function save_image($im)
   {
@@ -25,9 +23,10 @@
   }
   
   function convert_depth_data($res)
-  {  
+  {
      $data = array();
-     while ($l = $res->fetch_array(MYSQLI_ASSOC))
+
+     while ($l = mysql_fetch_array($res, MYSQL_ASSOC))
      {
         $ts = $l['ts'];                       // 0
         $price = floatval ($l['price']);      // 1
@@ -44,18 +43,23 @@
                            
   function get_depth_changes($pair, $filter)
   {
-     global $mysqli;    
+     global $link;    
      $query = "SELECT * FROM $pair"."__diff\n";
      $query .= $filter;     
      $query .= "ORDER BY ts\n";
-     $res = $mysqli->try_query($query) or die("Failed <$query> with errors:\n". $mysqli->error);
+     $res = mysql_query($query) or die("Failed <$query> with errors:\n".mysql_error());
      return convert_depth_data($res);           
   }                         
                            
-  function get_full_depth ($pair, $table, $filter)
-  {  
-     global $mysqli;    
-     $res = $mysqli->select_from('*', $pair.$table, $filter." ORDER BY price\n");
+  function get_full_depth ($pair, $table, $filter, $params = '')
+  {
+  
+     global $link;    
+     $query = "SELECT * FROM $pair"."$table\n";
+     $query .= $filter;     
+     $query .= "\nORDER BY price $params\n";     
+     $res = mysql_query($query) or die("Failed <$query> with errors:\n".mysql_error());
+
      return convert_depth_data($res);
   }                        
                               
@@ -503,15 +507,18 @@
      $filter = "WHERE price < $price_max ";
      if ($price_min > 0) 
          $filter .= "AND price > $price_min ";
-     
-     
+          
      $data = array();
+     $limit = rqs_param('limit', 10000);
+     
      
      if ($snap_time == 'now')  
-     {
-         $asks = get_full_depth ($pair, '__asks', $filter."\n");
-         $bids = get_full_depth ($pair, '__bids', $filter."\n");
-         $data = array_merge($bids, $asks);
+     {   
+         // сортировка по возрастанию цены         
+         $asks = get_full_depth ($pair, '__asks', $filter."\n",  "\n LIMIT $limit");
+         // сортировка по убыванию цены
+         $bids = get_full_depth ($pair, '__bids', $filter."\n", "DESC\n LIMIT $limit");
+         $data = array_merge(array_reverse($bids), $asks);
      }
      else
          $data = get_past_depth ($pair, $filter);
@@ -541,5 +548,5 @@
   
   save_image($im);
   
-  $mysqli->close();
+  mysql_close($link);
 ?>

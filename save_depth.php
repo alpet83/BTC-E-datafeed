@@ -561,6 +561,14 @@
      save_diff($pair, $prv_asks, $data->asks, '__asks');
      save_diff($pair, $prv_bids, $data->bids, '__bids');
 
+     $acnt = count($data->asks);
+     $wask = $data->asks[$acnt - 1][0];     
+     $bcnt = count($data->bids);
+     $wbid = $data->bids[$bcnt - 1][0];
+
+     $prices = " BIDS: $wbid -> {$data->bids[0][0]}, ASKS: $wask -> {$data->asks[0][0]} ";
+     echo "$prices\n";
+
   
      // log_msg("cleaning `last` tables for $pair"); 
           
