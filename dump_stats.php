@@ -183,7 +183,7 @@
      $sp_data = array();
      
      if ($dsp)
-     while ($row = $spd->fetch_array(MYSQL_ASSOC))
+     while ($row = $spd->fetch_array(MYSQLI_ASSOC))
      {
         $ts = $row['ts'];
         unset($row['ts']);
@@ -244,7 +244,7 @@
 
 
      // loading stats data
-     while ($l = $res->fetch_array(MYSQL_ASSOC))
+     while ($l = $res->fetch_array(MYSQLI_ASSOC))
      {
         $ts = $l['ts'];
         $ba = $l['best_ask'];
@@ -514,7 +514,7 @@
      global $mysqli;
      echo "timestamp,ask,bid,asks_vol,bids_vol\n";
      $res = get_depth_stats($pair, 300);     
-     while ($l = $mysqli->fetch_array($res, MYSQL_ASSOC))
+     while ($l = $mysqli->fetch_array($res, MYSQLI_ASSOC))
         echo ("{$l['ts']},{$l['best_ask']},{$l['best_bid']},{$l['volume_asks']},{$l['volume_bids']}\n");    
   }
     
