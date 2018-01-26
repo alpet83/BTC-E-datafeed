@@ -8,7 +8,8 @@
   $pair = rqs_param('pair', 'btc_usd');
   $limit = rqs_param('limit', 300);
   
-  $server = $_SERVER['SERVER_ADDR'];
+  // $server = $_SERVER['SERVER_ADDR'];
+  $server = 'localhost';
   $mysqli = new mysqli_ex($server, 'db_reader', 'dbr371x');
 
   if ($mysqli->connect_error)

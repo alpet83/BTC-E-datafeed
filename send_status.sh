@@ -1,21 +1,41 @@
 #!/bin/sh
 
+SERVER=monitor.lan
+MINER=`cat /etc/hostname`
+
+echo "OK" > /tmp/info_status.log
+
+ls /config/*miner.conf > /tmp/app
+APP=`grep -o [bcg].miner /tmp/app`
+echo local MINER=$MINER
+echo using APP=$APP
+
+
 while true; do
-  sleep 10
-  ps aux > /tmp/ps.list
-
-  miner=`grep -o [0-9]* /etc/hostname`
-
-  if grep -Fq "bmminer" /tmp/ps.list
+  sleep 1
+  ping -q -c1 $SERVER 
+  if [ $? -eq 0 ] 
   then
-   echo "OK: bmminer runned, trying API request, asic = $miner"
-   bmminer-api -o stats > /tmp/laststats
+   echo "#OK: monitor.lan accessible!" 
+  else
+   echo "#FATAL: unavailable server ".$SERVER
+   continue
+  fi
+
+  /usr/sbin/wait.sh
+  ps > /tmp/ps.list
+
+  if grep -Fq "$APP" /tmp/ps.list
+  then
+   echo "OK: $APP runned, trying API request, asic = $MINER"
+   $APP-api -o stats > /tmp/laststats
    if grep -Fq "Socket connect failed" /tmp/laststats
    then
-     echo "#WARN: bmminer in warmup state..."
+     echo "#WARN: $APP in warmup state..."
      continue
    else
-     curl -s -F "file=@/tmp/laststats;filename=laststats" http://alpet.me/miner.php?asic=$miner > /tmp/info_status.log
+     ping -c2 $SERVER 
+     curl -s -F "file=@/tmp/laststats;filename=laststats" http://$SERVER/miner.php?asic=$MINER > /tmp/info_status.log
      cat /tmp/info_status.log
    fi
   else
@@ -24,18 +44,19 @@ while true; do
      echo "#WARN: performing board test now"
      echo "testing..." > /tmp/info_status.log
    else
-     echo "#WARN_HANG: No mining apps runed " > /tmp/info_status.log
+     echo "#WARN_STRANGE: No mining apps runed " > /tmp/info_status.log
+     /etc/init.d/$APP.sh start >> /var/log/miner_restart.log
+     sleep 30
    fi
   fi
 
   if grep -Fq "WARN_HANG" /tmp/info_status.log
   then
    echo " trying restart miner !"
-   curl -s "http://alpet.me/miner.php?asic=$miner&event=Restart%20initiated"
-
-   /etc/init.d/bmminer.sh stop > /var/log/stop.log
-   screen -qdmS BitMiner sh -c '/usr/sbin/bmminer_job.sh'
-   #  bmminer --bitmain-fan-ctrl --bitmain-fan-pwm 99  --version-file /usr/bin/compile_time --api-listen --default-config  > /var/log/mining.log
+   curl -s "http://$SERVER/miner.php?asic=$MINER&event=Retart%20initiated"
+   /etc/init.d/$APP.sh stop > /var/log/miner_restart.log
+   sleep 30
+   /etc/init.d/$APP.sh start >> /var/log/miner_restart.log
   else
     echo "#STATUS: all ok, mining stable"
   fi

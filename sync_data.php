@@ -130,7 +130,7 @@
       log_msg("<font color='#a010a0'>local rows [$lsize], source rows [$rsize]</font>");
        
       
-      $lr = $ldata->fetch_array(MYSQL_NUM);       
+      $lr = $ldata->fetch_array(MYSQLI_NUM);       
               
       $ldate = utc_time($lr[0]);
       $rdate = utc_time($lr[0]);
@@ -142,14 +142,14 @@
           
       while (true)
       {      
-        $rr = $rdata->fetch_array(MYSQL_NUM);      
+        $rr = $rdata->fetch_array(MYSQLI_NUM);      
         if (!$rr) break;
        
         $ts_from = $rr[0];
         // пропуск, пока локальные данные имеют меньшую дату, чем удаленные
 
         while ($rr && $lr && $lr[0] < $rr[0]) 
-           $lr = $ldata->fetch_array(MYSQL_NUM);
+           $lr = $ldata->fetch_array(MYSQLI_NUM);
         if (!$lr) break;   
         
         $ldate->modify($lr[0]);

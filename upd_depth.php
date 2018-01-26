@@ -404,20 +404,32 @@
      }
      
      $date = utc_time();
-     $ts = $date->format('Y-m-d H:i:s');
+     $ts      = $date->format('Y-m-d H:i:s');
+     $hour_ts = $date->format('Y-m-d H:0:0');    
+
      $last_ts = $ts;
+
      
      $path =  "/var/www/depth/";
      check_mkdir($path);
      $file_name = $path.$pair."_last.json";
      
      load_remote_depth($pair);
+     
+     // health stats
+     $query = "INSERT IGNORE INTO `health`(pair,ts_period,diff_updates,full_updates)\n ";
+     $query .= "VALUES('$pair', '$hour_ts', 0, 0)\n;";
+     $mysqli->try_query($query);     
+     $upd_strict = "(pair = '$pair') AND (ts_period = '$hour_ts')";
+     
           
      $upd = insert_diff($pair, $data);
      if ($upd >= 0)
      {
          log_msg("stored $upd rows");
-         on_data_update('depth_diff_upd', $ts);                 
+         on_data_update('depth_diff_upd', $ts);
+         $query = "UPDATE `health`\n SET ts_period = ts_period, diff_updates = diff_updates + 1\n WHERE $upd_strict;";
+         $mysqli->try_query($query);                 
      }    
      else
          log_msg("update_for_pair: failed load from data:\n ".print_r($data, true)); 
@@ -428,7 +440,11 @@
      
      $save_full = false;
      $minute = $date->format('i') + 0;
-     $last_ts = $mysqli->select_value('ts' , "$pair\137_full", 'ORDER BY ts DESC');  
+     $last_ts = $mysqli->select_value('ts' , "$pair\137_full", 'ORDER BY ts DESC');
+     $hour_ts = $date->format('Y-m-d H:0:0');
+     
+     
+       
      
      if ($last_ts && strlen($last_ts) > 7 && $minute % 15 == 0)
      {

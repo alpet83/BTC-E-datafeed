@@ -1,5 +1,5 @@
 <?php   
-   include_once("common.php");
+   include_once("lib/common.php");
    
    $pair = rqs_param ('pair', 'btc_usd');
    $data = rqs_param ('data', 'ticker');

@@ -14,7 +14,7 @@
 
   $ldt = new DateTime('now');
   $sec = $ldt->format('s') * 1;
-
+  
   
   if ($sec < 59)
   {
@@ -24,8 +24,7 @@
       else 
           sleep(1);    
       return;
-  } 
-
+  }  
   list($usec, $sec) = explode(" ", microtime());
   $usec *= 1000000;      
   $adj = 999990;       
@@ -78,11 +77,8 @@
 
   // log_msg(" ts = [$ts], m = [$m] ");  
   
-  $double_field = "double NOT NULL DEFAULT '0'";
-  $float_field  = "float NOT NULL DEFAULT '0'";
-  
 
-  $depth_fields = array('id' => 'int(11) unsigned NOT NULL AUTO_INCREMENT');
+  $depth_fields = array('id' => $id_field);
   $depth_fields['ts'] = 'timestamp(3) NULL';
   $depth_fields['price']  = $double_field;
   $depth_fields['volume'] = $double_field;
@@ -96,6 +92,16 @@
   $stats_fields['volume_bids'] = $float_field;  
   $stats_fields['cost_asks'] = $float_field;
   $stats_fields['cost_bids'] = $float_field;
+  
+  // echo "ID_FIELD:[$id_field]\n";
+  
+  $health_fields = array('id' => $id_field);
+  $health_fields['pair']     = 'VARCHAR(7)';
+  $health_fields['ts_period'] = 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP';
+  $health_fields['full_updates']  = 'INT(11) unsigned';
+  $health_fields['diff_updates']  = 'INT(11) unsigned';
+   
+  
   
 
   $spreads_fields = array(    
@@ -192,7 +198,7 @@
   function save_diff($pair, $old_res, $new, $suffix)
   {
      global $commits, $ts;
-     if (0 == count($new)) return;
+     if (0 == count($new)) return 0;
 
      $old = array();
      $s_date  = utc_time($ts);
@@ -217,7 +223,7 @@
      if ($lch > $ref)
      {
         echo "\t diff table last changed at [$lch], breaking diff detection\n";
-        return;
+        return 0;
      } 
      
      
@@ -283,7 +289,8 @@
      
      if ($commits > 0)
          log_msg ("diff commits total = $commits ", "\n", true);
-        
+         
+     return $commits;   
   } // save_diff
 
   function try_insert($query) // only for depth __ask/__bids tables
@@ -523,10 +530,21 @@
   function save_for_pair($data, $force = false)
   {
      global $ts, $mysqli, $date, $last_ts, $date_dir, $last_url;
+     
+     
+     // $mysqli->try_query($query);
+     
      $pair = $data->pair;
      $ts = $data->ts;    
+     $minute = $date->format('i') + 0;
+     $hour_ts = $date->format('Y-m-d H:0:0');    
+    
+
+     $query = "INSERT IGNORE INTO `health`(pair,ts_period,diff_updates,full_updates)\n ";
+     $query .= "VALUES('$pair', '$hour_ts', 0, 0)\n;";
+     $mysqli->try_query($query);
      
-     $minute = $date->format('i') + 0;     
+     $upd_strict = "(pair = '$pair') AND (ts_period = '$hour_ts')";
           
      $save_full = false;
      $time_pass = ($minute < 5);
@@ -557,9 +575,16 @@
      $prv_bids = load_last_depth($pair, '__bids');
 
 
+     $commits = 0;
      // сохранение разницы между старыми и новыми таблицами
-     save_diff($pair, $prv_asks, $data->asks, '__asks');
-     save_diff($pair, $prv_bids, $data->bids, '__bids');
+     $commits += save_diff($pair, $prv_asks, $data->asks, '__asks');
+     $commits += save_diff($pair, $prv_bids, $data->bids, '__bids');
+          
+     if ($commits > 0)
+     {     
+       $query = "UPDATE `health`\n SET ts_period = ts_period, diff_updates = diff_updates + 1\n WHERE $upd_strict;";
+       $mysqli->try_query($query);
+     }  
 
      $acnt = count($data->asks);
      $wask = $data->asks[$acnt - 1][0];     
@@ -591,7 +616,10 @@
        $query .= "SELECT $fields FROM $pair"."__asks\n"; 
        try_query($query);
        log_msg ("$pair-full snapshot also added! \n");
-       on_data_update('save_depth_full', $ts); 
+       on_data_update('save_depth_full', $ts);       
+       
+       $query = "UPDATE `health`\n SET ts_period = ts_period, full_updates = full_updates + 1\n WHERE $upd_strict;";
+       $mysqli->try_query($query); 
      }          
     
      if ($sec < 10)
@@ -617,6 +645,9 @@
 
   
   init_db('depth_history');
+  // $mysqli->try_query("DROP TABLE health;");
+  
+  make_table('health', $health_fields, ", UNIQUE KEY `complex` (pair,ts_period)");
     
   // foreach ($save_pairs as $pair) save_for_pair($pair);
   //*

@@ -34,16 +34,20 @@
   $bars_fields['volume']     = $double_field;
   $bars_fields['last_trade'] = 'bigint(20) NOT NULL';
 
-  function save_bars($pair)
+  function save_bars($pair, $new_suffix = false)
   {  
      global $mysqli, $bars_fields;
-     $table =  $pair.'__bars_new';     
+     $table =  $pair.'__bars';
+     if ($new_suffix) 
+         $table .= '_new';
+          
      $dir = "logs/trades";
      check_mkdir($dir);
 
      // $log_file = fopen("$dir/bars_$pair.log", "a+");
 
      log_msg("#DBG(save_bars): getting data for $pair...");
+     
      $tmp = $mysqli->try_query("SHOW CREATE TABLE $table");
      $row = $tmp->fetch_array(MYSQL_NUM);
      if ($row && strpos($row[1], 'CURRENT_TIMESTAMP'))
@@ -79,7 +83,12 @@
 
 
      $fields = 'ts,price,trade_id,volume';
-     $ticks = $mysqli->select_from($fields, "$pair\137_new", "WHERE trade_id > $last_trade ORDER BY trade_id");
+     $src_table = $pair;
+     
+     if ($new_suffix) 
+         $src_table .= '__new'; 
+     
+     $ticks = $mysqli->select_from($fields, $src_table, "WHERE trade_id > $last_trade ORDER BY trade_id");
      if ($ticks === false)
      {
         log_msg('#FATAL(save_bars): no ticks returned!');        
@@ -327,7 +336,7 @@
           if ($rows > 0)
           {
               printf(" affected rows $rows \n");
-              save_bars($pair);
+              save_bars($pair, true);
           }    
         }    
         
@@ -336,25 +345,35 @@
     
     $data = null;
     
-    
     $last_tid = $mysqli->select_value ('trade_id', $table, 'ORDER BY trade_id DESC');
-    if (!$last_tid) continue;
-    // log_msg(" last trade in $table = $last_tid ");      
-    $query = $head . " SELECT ts, price, trade_id, flags, volume FROM $pair\n WHERE trade_id > $last_tid;";
-    log_msg("trying query:\n ". $query);
-    if ($mysqli->try_query($query))
-    {
-       $rows = $mysqli->affected_rows;        
-       if ($rows > 0)
-       {
-         printf(" affected rows $rows \n");
-         save_bars($pair);
-       }    
-    }
-    set_time_limit(1000);
-    echo "optimizing table $table... \n";
     
-    $mysqli->try_query("OPTIMIZE TABLE $table;");             
+    if ($last_tid) 
+    {
+        // log_msg(" last trade in $table = $last_tid ");      
+        $query = $head . " SELECT ts, price, trade_id, flags, volume FROM $pair\n WHERE trade_id > $last_tid;";
+        log_msg("trying query:\n ". $query);
+        if ($mysqli->try_query($query))
+        {
+           $rows = $mysqli->affected_rows;        
+           if ($rows > 0)
+           {
+             printf(" affected rows $rows \n");
+             save_bars($pair, true);
+           }    
+        }
+        // set_time_limit(1000);
+        // echo "optimizing table $table... \n";    
+        // $mysqli->try_query("OPTIMIZE TABLE $table;");                        
+        $mysqli->try_query("RENAME TABLE `$pair` TO `$pair\137_old`, `$table` TO `$pair`;");
+        $mysqli->try_query("RENAME TABLE `$pair\137_bars` TO `$pair\137_bars_old`, `$btable` TO `$pair\137_bars`;");
+        
+    }
+
+    $mysqli->try_query("DROP TABLE IF EXISTS `$pair\137_new`;");
+    $mysqli->try_query("DROP TABLE IF EXISTS `$pair\137_old`;");    
+    $mysqli->try_query("DROP TABLE IF EXISTS `$pair\137_bars_new`;");
+    $mysqli->try_query("DROP TABLE IF EXISTS `$pair\137_bars_old`;");
+    
            
     
     // die("\n debug here.\n");  

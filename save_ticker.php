@@ -11,7 +11,7 @@
   set_time_limit(300);
   
   $date = utc_time();
-  $date_dir = "$tmp_data_dir/ticker/".$date->format('Ymd');
+  $date_dir = "/var/www/ticker/".$date->format('Ymd');
   // check_mkdir($date_dir);
 
   $ts = $date->format('Y-m-d H:i:s');

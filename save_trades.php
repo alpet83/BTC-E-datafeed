@@ -1,7 +1,7 @@
 <?php
   // echo "....\n";
   header("Access-Control-Allow-Origin:*");
-  
+    
       
   include_once('lib/btc-e.api.php');
   include_once('lib/config.php');
@@ -46,13 +46,16 @@
 
      log_msg("#DBG(save_bars): getting data for $pair...");
      $tmp = $mysqli->try_query("SHOW CREATE TABLE $table");
-     $row = $tmp->fetch_array(MYSQL_NUM);
-     if ($row && strpos($row[1], 'CURRENT_TIMESTAMP'))
-     {          
-        log_msg("WRONG SQL:\n" .$row[1]);
-        $mysqli->try_query("DROP TABLE $table");
-        make_table($table, $bars_fields, ", UNIQUE KEY `TIMESTAMP`(`ts`) ");
-     }
+     if ($tmp)
+     {
+         $row = $tmp->fetch_array(MYSQLI_NUM);
+         if ($row && strpos($row[1], 'CURRENT_TIMESTAMP'))
+         {          
+            log_msg("WRONG SQL:\n" .$row[1]);
+            $mysqli->try_query("DROP TABLE $table");
+            make_table($table, $bars_fields, ", UNIQUE KEY `TIMESTAMP`(`ts`) ");
+         }
+     } 
 
      $columns = '`ts`,`open`,`high`,`low`,`close`,`volume`,`last_trade`';
      $last_bar = $mysqli->select_row($columns, $table, 'ORDER BY ts DESC');

@@ -1,6 +1,7 @@
 <?php
 
   include_once('lib/common.php');
+  include_once('lib/db_tools.php');
   set_time_limit(30);
   
   $pair = rqs_param('pair', 'btc_usd');
@@ -8,25 +9,31 @@
   $snap_time = rqs_param('snap_time', 'now'); // '2014-07-23 9:05:00'
   $price_min = rqs_param('price_min', 0);
   $price_max = rqs_param('price_max', 1e12);
+  $stair_draw = rqs_param('stairs', 1);
   
   $colors = array();
   
   
-  $link = mysql_connect('localhost', 'db_reader', 'dbr371x') or die('cannot connect to DB server: '.mysql_error()); // global for all actions
-  mysql_select_db("depth_history") or die('cannot select DB depth_history');
+  $mysqli = new mysqli_ex('localhost', 'db_reader', 'dbr371x'); // global for all actions
+  if ($mysqli->connect_error) 
+      die ('cannot connect to DB server: '.$mysqli->connect_error);  
+
+  $mysqli->select_db('depth_history');
+  
   
   function save_image($im)
   {
-     header("Content-type: image/png");
+     header("Content-type: image/png");     
      imagepng($im);   
      imagedestroy($im);             
   }
   
   function convert_depth_data($res)
   {
+     
      $data = array();
 
-     while ($l = mysql_fetch_array($res, MYSQL_ASSOC))
+     while ($l = $res->fetch_array(MYSQLI_ASSOC))
      {
         $ts = $l['ts'];                       // 0
         $price = floatval ($l['price']);      // 1
@@ -43,23 +50,22 @@
                            
   function get_depth_changes($pair, $filter)
   {
-     global $link;    
+     global $mysqli;    
      $query = "SELECT * FROM $pair"."__diff\n";
      $query .= $filter;     
      $query .= "ORDER BY ts\n";
-     $res = mysql_query($query) or die("Failed <$query> with errors:\n".mysql_error());
+     $res = $mysqli->try_query($query);
      return convert_depth_data($res);           
   }                         
                            
   function get_full_depth ($pair, $table, $filter, $params = '')
   {
   
-     global $link;    
+     global $mysqli;    
      $query = "SELECT * FROM $pair"."$table\n";
      $query .= $filter;     
      $query .= "\nORDER BY price $params\n";     
-     $res = mysql_query($query) or die("Failed <$query> with errors:\n".mysql_error());
-
+     $res = $mysqli->try_query($query);
      return convert_depth_data($res);
   }                        
                               
@@ -305,9 +311,9 @@
   }
                                
                               
-  function draw_depth ($data, $clr_asks, $clr_bids)
+  function draw_depth ($data, $clr_asks, $clr_bids, $clr_sprd)
   {
-     global $pair, $snap_time, $im, $colors, $width, $height, $red, $lime, $white, $yellow;
+     global $pair, $snap_time, $im, $colors, $width, $height, $red, $lime, $white, $yellow, $stair_draw;
      // $res = get_depth_stats($pair, 300);
     
      init_colors($im);
@@ -362,6 +368,9 @@
      $date = new DateTime('now', new DateTimeZone('UTC'));
      $date->setTimestamp ($saldo[0]);
      $ts = $date->format('H:i:s d-m-y');
+     
+     
+
      imagestring($im, 5, $cl_left + 1000, $cl_top - 20, "snapshot time = $ts UTC", $yellow);    // legend
 
      
@@ -372,7 +381,7 @@
      
      //$p_ystep = $frame_height * 1.0 / $price_range;
      
-     $ystep = $cl_height * 1.0 / $max_vol;     
+     $ystep = ($cl_height - 2) * 1.0 / $max_vol;     
      
      $x = $cl_left;
      
@@ -404,9 +413,28 @@
      $p_first = $data[0][1];
      $p_last = $data[$last][1];
      
+     $best_bid = $p_first;
+     $best_ask = $p_last;
+     for ($i = 0; $i < $last; $i++)
+     {
+       $row = $data[$i]; 
+       if ( ($row[3] & 1) > 0 )
+       { 
+         $best_bid = $row[1];
+         continue;
+       }  
+       $best_ask = $row[1];
+       break;  
+     }
+     
+     
+     
      
      imagestring($im, 5, $cl_left + 700, $cl_top - 40, "price_first = $p_first", $white);    // legend
      imagestring($im, 5, $cl_left + 700, $cl_top - 20, "price_last = $p_last", $white);    // legend
+     
+     imagestring($im, 5, $cl_left + 1000, $cl_top - 40, "spread [$best_bid .. $best_ask]", $white);    // legend
+     
      
      $price_range = $p_last - $p_first;
      $px_step = $cl_width / $price_range;
@@ -460,6 +488,7 @@
      
      $fprv = 1;
      
+     $pp = 0;
      
      foreach ($data as $d)
      {
@@ -467,6 +496,11 @@
        $price = $d[1];
        $vol   = $d[2];
        $flags = $d[3];      
+
+
+       if ($flags != 1)      // for asks total volume rise           
+           $v_curr += $vol;
+                       
        
        $y = $cl_bottom - $v_curr  * $ystep;
        $ry = round ($y);
@@ -474,24 +508,61 @@
        $x = $cl_left + ($price - $p_first) * $px_step;
        $rx = round($x);
        
+       if ($flags == 1)       
+           $v_curr = max(0, $v_curr - $vol);  // for bids total volume descent
+       
      
        if ($px > 0 && $vol > 0.0)
        {
-         if (1 == $fprv)
-            imageline ($im, $px, $py, $rx, $y, $clr_bids);    // bids line
-         else   
-            imageline ($im, $px, $py, $rx, $y, $clr_asks);     // asks line         
-       }
+         $color = $clr_asks;         
+         
+         // interchange from bids to asks
+         if (1 == $fprv && 1 != $flags)
+         {           
+           imageline ($im, $px, $py, $px, $cl_bottom, $clr_bids); //  
+           // imageline ($im, $px, $cl_bottom, $rx, $cl_bottom, $color);    // draw line
+           $py = $cl_bottom; 
+           $px = $rx;            
+         }
+         
+         if (1 == $flags)
+             $color = $clr_bids;
+             
+         if ($v_curr <= 10)
+         { 
+           //  imagestring($im, 5, $rx + 1, ($i * 15) % ($cl_bottom - 40) + $cl_top, "dbg: $pp => $price, $v_curr", $white); 
+         }        
+         
+         
+         // draw depth curve               
+         if ($py > $cl_top && $y > $cl_top)               
+         {
+            if ($stair_draw)
+            {
+               if (1 == $flags)  // bids 
+               {
+                  imageline ($im, $px, $py, $px, $y, $color); // vertical down at old X, -> new Y
+                  imageline ($im, $px, $y, $rx, $y, $color); // horizontal right -> new X, new Y                  
+               }    
+               else
+               {
+                  imageline ($im, $px, $py, $rx, $py, $color); // horizontal right -> new X, old Y                 
+                  imageline ($im, $rx, $py, $rx, $y, $color);  // vertical up at new X, new Y
+               
+               }
+            
+            }
+            else      
+               imageline ($im, $px, $py, $rx, $y, $color);    // draw line
+         } // if ($py > 0)                 
+         
+       } // if ($px > 0)
        
-       
-       if (1 == $flags) 
-           $v_curr -= $vol;
-       else 
-           $v_curr += $vol;
-       
-     
+       // if (1 == $flags) 
+           
        $px = $rx;
        $py = $y;
+       $pp = $price;
        $fprv = $flags;
        
        
@@ -500,10 +571,12 @@
      }     
             
   }
+
+   
     
   function draw_pair($pair)
   {
-     global $price_max, $price_min, $snap_time, $red, $lime;
+     global $price_max, $price_min, $snap_time, $red, $lime, $black;
      $filter = "WHERE price < $price_max ";
      if ($price_min > 0) 
          $filter .= "AND price > $price_min ";
@@ -523,30 +596,25 @@
      else
          $data = get_past_depth ($pair, $filter);
           
-     draw_depth($data, $red, $lime);
+     draw_depth($data, $red, $lime, $black);
   }
   
-  
-  
-  // image creating 
-  $width = rqs_param('w', 1920); 
-  $height = rqs_param('h', 1080);
+// image creating 
+  $width = rqs_param('w', 1920);      
+  $height = rqs_param('h', floor ($width / 2) );
   if ($width < 400) $width = 400;
   if ($height < 200) $height = 200;
       
-  $im = imagecreate($width, $height);
+  $im = imagecreate($width, $height);  
   if (!isset($im)) die("cannot create image $width x $height\n");
-  
+
   $black  = imagecolorallocate($im, 0,     0,   0);         // background    
   $lime   = imagecolorallocate($im, 0,   255,   0);
   $red    = imagecolorallocate($im, 255,   0,   0);
   $white  = imagecolorallocate($im, 255, 255, 255);
   $yellow = imagecolorallocate($im, 255, 255,   0);
-  
-  
-  draw_pair($pair);
-  
-  save_image($im);
-  
-  mysql_close($link);
+    
+  draw_pair($pair);  
+  save_image($im);   
+  $mysqli->close();
 ?>
